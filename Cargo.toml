@@ -1,0 +1,21 @@
+[package]
+name = "crabnnb"
+version = "0.1.0"
+edition = "2021"
+authors = ["Juan Manuel CABA <juanmaneo@gmail.com>"]
+description = "CRABNNB - Crab's Remote Access Bluetooth Nearby Notification Blocker"
+license = "Beerware"
+repository = "https://github.com/juanmaneo/crabnnb"
+keywords = ["bluetooth", "proximity", "lock", "security", "automation"]
+categories = ["command-line-utilities"]
+rust-version = "1.70.0"  # MSRV
+
+[dependencies]
+lexopt = "0.3.0"
+anyhow = "1.0"
+
+[workspace]
+members = [
+    "xtask",
+]
+resolver = "2"
