@@ -15,6 +15,10 @@ This naming reflects the project's core functionality:
 
 This project is licensed under the [Beerware License](LICENSE).
 
+## Changelog
+
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
 CRABNNB monitors Bluetooth device proximity and can lock/unlock your session based on device presence, making it perfect for automatically securing your computer when you walk away.
 
 ## Minimum Supported Rust Version (MSRV)

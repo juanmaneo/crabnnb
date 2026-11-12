@@ -1,6 +1,6 @@
 [package]
 name = "crabnnb"
-version = "0.1.0"
+version = "0.1.1"
 edition = "2021"
 authors = ["Juan Manuel CABA <juanmaneo@gmail.com>"]
 description = "CRABNNB - Crab's Remote Access Bluetooth Nearby Notification Blocker"
