@@ -209,9 +209,10 @@ cargo xtask clean
 
 ## Testing
 
-Run tests with:
+Run the full test suite (unit + integration tests):
+
 ```bash
- cargo test
+cargo test
 ```
 
 ## Exit Codes

@@ -57,3 +57,55 @@ impl FromStr for Mac {
         Mac::parse(s)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_valid_mac() {
+        let mac = Mac::parse("AA:BB:CC:DD:EE:FF").unwrap();
+        assert_eq!(mac.bytes(), [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+    }
+
+    #[test]
+    fn test_parse_lowercase() {
+        let mac = Mac::parse("aa:bb:cc:dd:ee:ff").unwrap();
+        assert_eq!(mac.bytes(), [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+    }
+
+    #[test]
+    fn test_parse_wrong_part_count() {
+        assert!(Mac::parse("AA:BB:CC:DD:EE").is_err());
+        assert!(Mac::parse("AA:BB:CC:DD:EE:FF:00").is_err());
+    }
+
+    #[test]
+    fn test_parse_invalid_hex() {
+        assert!(Mac::parse("GG:BB:CC:DD:EE:FF").is_err());
+    }
+
+    #[test]
+    fn test_parse_wrong_length_octet() {
+        assert!(Mac::parse("A:BB:CC:DD:EE:FF").is_err());
+        assert!(Mac::parse("AAB:BB:CC:DD:EE:FF").is_err());
+    }
+
+    #[test]
+    fn test_display_format() {
+        let mac = Mac::parse("01:02:03:04:05:06").unwrap();
+        assert_eq!(format!("{mac}"), "01:02:03:04:05:06");
+    }
+
+    #[test]
+    fn test_from_str() {
+        let mac: Mac = "AA:BB:CC:DD:EE:FF".parse().unwrap();
+        assert_eq!(mac.bytes(), [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+    }
+
+    #[test]
+    fn test_mac_error_display() {
+        let err = MacError("test error".to_string());
+        assert_eq!(format!("{err}"), "test error");
+    }
+}

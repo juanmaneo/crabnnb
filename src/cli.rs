@@ -3,6 +3,7 @@ use std::time::Duration;
 use crate::commands;
 use crate::mac::Mac;
 
+#[derive(Debug, PartialEq)]
 pub struct RunArgs {
     pub mac: Mac,
     pub lock_cmd: String,
@@ -21,6 +22,7 @@ pub struct RunArgs {
     pub verbose: bool,
 }
 
+#[derive(Debug, PartialEq)]
 pub enum Parsed {
     Help,
     Run(RunArgs),
@@ -170,4 +172,124 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
     }
     r.validate()?;
     Ok(Parsed::Run(r))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn args(v: &[&str]) -> Vec<String> {
+        v.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_parse_help() {
+        assert_eq!(parse(&args(&["--help"])).unwrap(), Parsed::Help);
+        assert_eq!(parse(&args(&["-h"])).unwrap(), Parsed::Help);
+    }
+
+    #[test]
+    fn test_parse_empty_args() {
+        assert!(parse(&[]).is_err());
+    }
+
+    #[test]
+    fn test_parse_invalid_mac() {
+        let err = parse(&args(&["NOT_A_MAC"])).unwrap_err();
+        assert!(err.contains("invalid bluetooth address"));
+    }
+
+    #[test]
+    fn test_parse_defaults() {
+        let parsed = parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap();
+        match parsed {
+            Parsed::Run(r) => {
+                assert_eq!(r.mac.bytes(), [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
+                assert!((r.max_distance_cm - 90.0).abs() < 1e-10);
+                assert_eq!(r.max_missed, 3);
+                assert_eq!(r.scan_period, Duration::from_secs(1));
+                assert_eq!(r.samples, 7);
+                assert!((r.rssi_at_1m - (-59.0)).abs() < 1e-10);
+                assert!(!r.dry_run);
+                assert!(!r.once);
+                assert!(r.verbose);
+            }
+            Parsed::Help => panic!("expected Run"),
+        }
+    }
+
+    #[test]
+    fn test_parse_all_options() {
+        let parsed = parse(&args(&[
+            "AA:BB:CC:DD:EE:FF",
+            "--lock-cmd",
+            "loginctl lock-session",
+            "--unlock-cmd",
+            "loginctl unlock-session",
+            "--max-distance-cm",
+            "150",
+            "--max-missed",
+            "5",
+            "--scan-period",
+            "2.5",
+            "--samples",
+            "10",
+            "--sample-sleep-ms",
+            "100",
+            "--max-attempts",
+            "20",
+            "--rssi-at-1m",
+            "-65",
+            "--recv-timeout-ms",
+            "5000",
+            "--max-iterations",
+            "100",
+            "--dry-run",
+            "--once",
+            "--quiet",
+        ]))
+        .unwrap();
+        match parsed {
+            Parsed::Run(r) => {
+                assert_eq!(r.lock_cmd, "loginctl lock-session");
+                assert_eq!(r.unlock_cmd, "loginctl unlock-session");
+                assert!((r.max_distance_cm - 150.0).abs() < 1e-10);
+                assert_eq!(r.max_missed, 5);
+                assert_eq!(r.scan_period, Duration::from_millis(2500));
+                assert_eq!(r.samples, 10);
+                assert_eq!(r.sample_sleep, Duration::from_millis(100));
+                assert_eq!(r.max_attempts, 20);
+                assert!((r.rssi_at_1m - (-65.0)).abs() < 1e-10);
+                assert_eq!(r.recv_timeout, Duration::from_millis(5000));
+                assert_eq!(r.max_iterations, 100);
+                assert!(r.dry_run);
+                assert!(r.once);
+                assert!(!r.verbose);
+            }
+            Parsed::Help => panic!("expected Run"),
+        }
+    }
+
+    #[test]
+    fn test_parse_unknown_option() {
+        let err = parse(&args(&["AA:BB:CC:DD:EE:FF", "--bogus"])).unwrap_err();
+        assert!(err.contains("unknown option"));
+    }
+
+    #[test]
+    fn test_parse_missing_value() {
+        let err = parse(&args(&["AA:BB:CC:DD:EE:FF", "--max-distance-cm"])).unwrap_err();
+        assert!(err.contains("requires a value"));
+    }
+
+    #[test]
+    fn test_parse_negative_distance_fails() {
+        assert!(parse(&args(&["AA:BB:CC:DD:EE:FF", "--max-distance-cm", "-5"])).is_err());
+    }
+
+    #[test]
+    fn test_usage_contains_prog() {
+        let u = usage("crabnnb");
+        assert!(u.contains("crabnnb <btaddr>"));
+    }
 }
