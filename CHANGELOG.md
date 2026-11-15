@@ -5,6 +5,30 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Security
+- Presence is no longer decided by MAC address + RSSI alone (both spoofable, e.g. with a Flipper Zero). Each poll now requires a challenge-response **encrypted heartbeat** from the device: the PC writes a fresh 16-byte challenge over ATT and the device must reply with a ChaCha20-Poly1305 (RFC 8439) authenticated message (monotonic counter + unix-ms timestamp + challenge echo, AAD = watch and PC MACs). Replay, stale/future timestamps, wrong challenge and tag mismatches are all rejected. Unlock additionally requires RSSI distance below the threshold; a failed heartbeat counts as "away" and locks after `--max-missed` polls.
+- Secure mode is the default: running without `--key-file` is refused unless `--allow-insecure` is passed explicitly (legacy mode now prints a spoofability warning).
+- Key files are provisioned with `--gen-key-file` (random 32 bytes, mode 0600, never overwritten) and rejected at load time if readable by group/others.
+
+### Added
+- `src/crypto.rs`: ChaCha20-Poly1305 AEAD wrapper, `/dev/urandom` nonces, hex key files with permission checks (validated against the RFC 8439 test vector)
+- `src/heartbeat.rs`: heartbeat message seal/open with replay, freshness and challenge-binding checks
+- `src/att.rs`: minimal ATT PDU codec (MTU exchange, write command, notifications, error responses)
+- `src/session.rs`: `SecureSession` probe state machine (outstanding challenge, last seen counter, freshness window)
+- L2CAP framing and ATT fixed-channel (CID 0x0004) connect/send/recv in `src/transport.rs`; `HCI Read BD ADDR` support in `src/hci.rs` (local MAC goes into the AAD)
+- `BtOps::secure_probe` / `BtOps::local_mac`; `BleDevice::set_secure` with ATT MTU exchange
+- `Sample::Unverified` in the monitor: treated like "away" (locks after `--max-missed`)
+- CLI: `--key-file`, `--gen-key-file`, `--allow-insecure`, `--heartbeat-window-ms`, `--challenge-timeout-ms`, `--challenge-handle`, `--heartbeat-handle`
+- `docs/secure-heartbeat.md`: wire protocol, verification rules, key provisioning, Forerunner 235 guidance, Linux notes, residual risks
+- Tests: RFC 8439 vector, heartbeat forgery/replay/stale/challenge-mismatch cases, session probe tests, run-loop tests proving garbage/no-response/replayed heartbeats never unlock, CLI tests for the new options and secure-by-default enforcement
+
+### Changed
+- `cargo test`: 124 unit + 7 integration tests pass
+- README security section rewritten; systemd unit now uses `--key-file` and drops root in favor of `CAP_NET_ADMIN`
+- Dependency added: `chacha20poly1305` 0.10 (pure Rust, audited RustCrypto crate; still no system libraries such as libbluetooth)
+
 ## [0.1.1] - 2026-11-12
 
 ### Added

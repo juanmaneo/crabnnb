@@ -1,14 +1,18 @@
 // Bluetooth proximity detection modules
+pub mod att;
 pub mod cli;
 pub mod clock;
 pub mod commands;
+pub mod crypto;
 pub mod device;
 pub mod distance;
 pub mod hci;
+pub mod heartbeat;
 pub mod mac;
 pub mod monitor;
 pub mod run;
 pub mod sampler;
+pub mod session;
 pub mod sys;
 pub mod transport;
 

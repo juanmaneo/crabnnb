@@ -13,7 +13,11 @@ pub struct HciTransport<'a, S: Sys> {
 
 impl<'a, S: Sys> HciTransport<'a, S> {
     pub fn open(sys: &'a S) -> io::Result<Self> {
-        let fd = sys.socket(hci::AF_BLUETOOTH, hci::SOCK_RAW | hci::SOCK_CLOEXEC, hci::BTPROTO_HCI)?;
+        let fd = sys.socket(
+            hci::AF_BLUETOOTH,
+            hci::SOCK_RAW | hci::SOCK_CLOEXEC,
+            hci::BTPROTO_HCI,
+        )?;
         if let Err(e) = sys.bind(fd, &hci::sockaddr_hci_raw()) {
             let _ = sys.close(fd);
             return Err(e);
@@ -75,9 +79,7 @@ impl<'a, S: Sys> HciTransport<'a, S> {
 
     pub fn conn_handle(&mut self, mac: Mac) -> io::Result<u16> {
         let mut req = hci::conn_info_request(mac);
-        let n = self
-            .sys
-            .ioctl(self.hci_fd, hci::HCIGETCONNINFO, &mut req)?;
+        let n = self.sys.ioctl(self.hci_fd, hci::HCIGETCONNINFO, &mut req)?;
         hci::parse_conn_handle(&req[..n])
     }
 
@@ -91,6 +93,78 @@ impl<'a, S: Sys> HciTransport<'a, S> {
         }
         self.sys
             .connect(self.bt_fd, &hci::sockaddr_l2cap(mac, hci::L2CAP_PSM))
+    }
+
+    pub fn l2cap_connect_cid(&mut self, mac: Mac, cid: u16) -> io::Result<()> {
+        if self.bt_fd < 0 {
+            self.bt_fd = self.sys.socket(
+                hci::AF_BLUETOOTH,
+                hci::SOCK_RAW | hci::SOCK_CLOEXEC,
+                hci::BTPROTO_L2CAP,
+            )?;
+        }
+        self.sys
+            .connect(self.bt_fd, &hci::sockaddr_l2cap_cid(mac, cid))
+    }
+
+    pub fn set_bt_recv_timeout(&self, d: Duration) -> io::Result<()> {
+        self.sys.setsockopt(
+            self.bt_fd,
+            hci::SOL_SOCKET,
+            hci::SO_RCVTIMEO,
+            &hci::timeval_bytes(d),
+        )
+    }
+
+    pub fn l2cap_send(&self, cid: u16, payload: &[u8]) -> io::Result<()> {
+        let mut frame = Vec::with_capacity(4 + payload.len());
+        frame.extend_from_slice(&(payload.len() as u16).to_le_bytes());
+        frame.extend_from_slice(&cid.to_le_bytes());
+        frame.extend_from_slice(payload);
+        let mut buf: &[u8] = &frame;
+        while !buf.is_empty() {
+            match self.sys.write(self.bt_fd, buf) {
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::WriteZero,
+                        "l2cap write returned 0",
+                    ))
+                }
+                Ok(n) => buf = &buf[n..],
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            }
+        }
+        Ok(())
+    }
+
+    pub fn l2cap_recv(&self) -> io::Result<Option<(u16, Vec<u8>)>> {
+        let mut buf = vec![0u8; 4 + 0xffff];
+        let mut filled = 0usize;
+        loop {
+            match self.sys.read(self.bt_fd, &mut buf[filled..]) {
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return Ok(None),
+                Err(e) => return Err(e),
+                Ok(0) => {
+                    return Err(io::Error::new(
+                        io::ErrorKind::UnexpectedEof,
+                        "l2cap socket closed",
+                    ))
+                }
+                Ok(n) => {
+                    filled += n;
+                    if filled >= 4 {
+                        let len = u16::from_le_bytes([buf[0], buf[1]]) as usize;
+                        let total = 4 + len;
+                        if filled >= total {
+                            let cid = u16::from_le_bytes([buf[2], buf[3]]);
+                            return Ok(Some((cid, buf[4..total].to_vec())));
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 

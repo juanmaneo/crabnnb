@@ -37,6 +37,10 @@ impl Mac {
     pub fn bytes(&self) -> [u8; 6] {
         self.0
     }
+
+    pub fn from_bytes(b: [u8; 6]) -> Mac {
+        Mac(b)
+    }
 }
 
 impl fmt::Display for Mac {
@@ -107,5 +111,12 @@ mod tests {
     fn test_mac_error_display() {
         let err = MacError("test error".to_string());
         assert_eq!(format!("{err}"), "test error");
+    }
+
+    #[test]
+    fn test_from_bytes_roundtrip() {
+        let mac = Mac::from_bytes([0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]);
+        assert_eq!(format!("{mac}"), "DE:AD:BE:EF:00:01");
+        assert_eq!(mac.bytes(), [0xde, 0xad, 0xbe, 0xef, 0x00, 0x01]);
     }
 }

@@ -2,6 +2,7 @@
 pub enum Sample {
     Distance(f64),
     Away,
+    Unverified,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -31,7 +32,7 @@ impl Monitor {
 
     pub fn update(&mut self, sample: &Sample) -> Option<Action> {
         match sample {
-            Sample::Away => {
+            Sample::Away | Sample::Unverified => {
                 self.away_streak += 1;
                 self.far_streak = 0;
                 if self.away_streak >= self.max_missed {
@@ -142,6 +143,25 @@ mod tests {
         let mut m = Monitor::new(3, 90.0);
         assert_eq!(m.update(&Sample::Distance(0.5)), Some(Action::Unlock));
         assert_eq!(m.update(&Sample::Distance(0.5)), None); // already unlocked
+    }
+
+    #[test]
+    fn test_unverified_counts_toward_lock() {
+        let mut m = Monitor::new(2, 90.0);
+        m.update(&Sample::Distance(0.5)); // unlock
+        assert_eq!(m.update(&Sample::Unverified), None); // 1/2
+        assert_eq!(m.update(&Sample::Unverified), Some(Action::Lock)); // 2/2
+        assert!(m.is_locked());
+    }
+
+    #[test]
+    fn test_unverified_resets_on_distance() {
+        let mut m = Monitor::new(2, 90.0);
+        m.update(&Sample::Distance(0.5)); // unlock
+        m.update(&Sample::Unverified); // 1/2
+        assert_eq!(m.update(&Sample::Distance(0.5)), None); // near again, resets streak
+        assert_eq!(m.update(&Sample::Unverified), None); // 1/2 again
+        assert!(!m.is_locked());
     }
 
     #[test]

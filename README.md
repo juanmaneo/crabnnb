@@ -27,9 +27,10 @@ This project requires Rust 1.70.0 or later.
 
 ## Features
 
-- Zero-dependency Rust implementation
-- Raw HCI socket communication (no libbluetooth)
-- L2CAP connect with RSSI and TX power reading
+- Raw HCI socket communication (no libbluetooth; pure-Rust crates only)
+- **Encrypted, authenticated heartbeat (challenge-response) between watch and PC** — secure by default; MAC+RSSI alone is never enough to unlock
+- ChaCha20-Poly1305 (RFC 8439) AEAD with replay protection (monotonic counter), freshness window and challenge binding
+- L2CAP/ATT (GATT client) channel with MTU exchange, plus RSSI and TX power reading
 - Log-distance path-loss model with polynomial accuracy curves
 - Sample averaging for stable distance measurements
 - Edge-triggered locking after configurable missed polls
@@ -37,6 +38,8 @@ This project requires Rust 1.70.0 or later.
 - Dry-run mode for safe testing
 - Clean exit codes (0/1/2/3)
 - Systemd service integration
+
+See [docs/secure-heartbeat.md](docs/secure-heartbeat.md) for the protocol specification and threat model.
 
 ## Installation
 
@@ -73,25 +76,46 @@ cargo run -- <btaddr> [OPTIONS]
 --once                 Run a single poll and exit
 --max-iterations N     Stop after N polls (0 = unlimited, default: 0)
 --quiet                Suppress informational output
+
+Secure heartbeat (required unless --allow-insecure):
+--key-file PATH        File with 32-byte key as 64 hex chars (mode 0600)
+--gen-key-file PATH    Generate a new random key file and exit
+--allow-insecure       Allow legacy MAC+RSSI mode without a key (spoofable)
+--heartbeat-window-ms MS  Max accepted heartbeat timestamp age/skew (default: 5000)
+--challenge-timeout-ms MS  Wait for the heartbeat reply per poll (default: 2000)
+--challenge-handle H   ATT handle of the challenge characteristic (default: 0x0031)
+--heartbeat-handle H   ATT handle of the heartbeat characteristic (default: 0x0034)
+```
+
+### Provisioning the shared key
+
+```bash
+# On the Linux PC: create the key (mode 0600, never overwritten)
+crabnnb --gen-key-file /etc/crabnnb/key.hex
+
+# Copy the 64 hex chars to the watch side out-of-band (USB/QR/manual entry),
+# then run:
+crabnnb WATCH_MAC_ADDRESS --key-file /etc/crabnnb/key.hex
 ```
 
 ## Examples
 
 ```bash
-# Basic usage with default settings
-cargo run -- AA:BB:CC:DD:EE:FF
+# Basic secure usage (encrypted heartbeat required to unlock)
+cargo run -- AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex
 
 # Default KDE Plasma commands
-cargo run -- DEVICE_MAC_ADDRESS --lock-cmd "loginctl lock-session" --unlock-cmd "loginctl unlock-session"
+cargo run -- DEVICE_MAC_ADDRESS --key-file /etc/crabnnb/key.hex \
+  --lock-cmd "loginctl lock-session" --unlock-cmd "loginctl unlock-session"
 
 # Dry run mode for testing (no commands executed)
-cargo run -- AA:BB:CC:DD:EE:FF --dry-run
+cargo run -- AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex --dry-run
 
 # Run only once and exit (useful for testing)
-cargo run -- AA:BB:CC:DD:EE:FF --once
+cargo run -- AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex --once
 
-# Discover nearby Bluetooth devices
-cargo run -- --once --dry-run
+# Legacy MAC+RSSI mode (spoofable; prints a warning) — testing only
+cargo run -- AA:BB:CC:DD:EE:FF --allow-insecure --dry-run
 ```
 ## Device Configuration
 
@@ -136,6 +160,7 @@ Documentation=https://github.com/juanmaneo/BNNB
 [Service]
 Type=simple
 ExecStart=/path/to/crabnnb/target/release/crabnnb DEVICE_MAC_ADDRESS \
+  --key-file /etc/crabnnb/key.hex \
   --max-distance-cm 150 \
   --rssi-at-1m -65 \
   --samples 5 \
@@ -145,6 +170,13 @@ ExecStart=/path/to/crabnnb/target/release/crabnnb DEVICE_MAC_ADDRESS \
 Restart=always
 RestartSec=30
 Environment="RUST_LOG=info"
+# HCI raw sockets need CAP_NET_ADMIN; avoid running as full root
+AmbientCapabilities=CAP_NET_ADMIN
+CapabilityBoundingSet=CAP_NET_ADMIN
+NoNewPrivileges=true
+ProtectSystem=strict
+ReadWritePaths=/etc/crabnnb
+PrivateTmp=true
 
 [Install]
 WantedBy=default.target
@@ -222,13 +254,20 @@ cargo test
 ## Exit Codes
 
 - 0: Success
-- 1: General error
+- 1: General error (including missing `--key-file` in secure mode)
 - 2: Bluetooth error
-- 3: Command execution error
+- 3: Device lookup/command execution error
 
 ## Security Considerations
 
-1. The Bluetooth MAC address is stored in configuration files
-2. Lock/unlock commands run with your user privileges
-3. Ensure your system's Bluetooth stack is up-to-date
-4. Consider the privacy implications of Bluetooth device tracking
+1. **Presence now requires a cryptographic heartbeat, not just the MAC.** Every poll the PC writes a fresh 16-byte challenge to the watch over ATT and requires a ChaCha20-Poly1305-authenticated reply (counter + timestamp + challenge echo, AAD = both MACs) within `--heartbeat-window-ms`. A Flipper Zero can spoof the MAC and fake the RSSI, but cannot forge the AEAD tag without the pre-shared key. See [docs/secure-heartbeat.md](docs/secure-heartbeat.md).
+2. Unlock additionally requires the RSSI-derived distance to be below `--max-distance-cm` (second factor).
+3. The key file must be mode `0600`; crabnnb refuses looser permissions. Provision it out-of-band, never over BLE. Rotate with `--gen-key-file` if it leaks.
+4. Lock/unlock commands run with your user privileges; run the service with `CAP_NET_ADMIN` only (see the systemd unit above), not as full root.
+5. `--allow-insecure` restores the old MAC+RSSI-only behavior and is intended for testing only — it is spoofable and prints a warning.
+6. Residual risk: relay attacks (two radios forwarding the heartbeat) are bounded by the heartbeat freshness window but not eliminated; keep `--max-distance-cm` tight and consider BLE pairing / distance bounding for high-security setups.
+7. Ensure your system's Bluetooth stack is up-to-date; consider the privacy implications of Bluetooth device tracking.
+
+### Garmin Forerunner 235 note
+
+Connect IQ apps cannot host a GATT server (`Toybox.BluetoothLowEnergy` is central-only and unavailable on the FR235), so the FR235 cannot directly run the responder side of this protocol. Options: phone bridge via `Toybox.Communications`, an ANT+ channel to an ANT+ USB stick on the PC, a newer CIQ 3.1+ watch as BLE central against a BlueZ GATT server on the PC, or any BLE peripheral running the reference responder. The crypto/heartbeat modules are transport-agnostic. Details in [docs/secure-heartbeat.md](docs/secure-heartbeat.md).

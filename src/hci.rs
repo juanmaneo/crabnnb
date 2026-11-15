@@ -30,16 +30,19 @@ pub const OCF_INQUIRY: u16 = 0x0001;
 pub const OCF_REMOTE_NAME_REQ: u16 = 0x0019;
 pub const OCF_READ_RSSI: u16 = 0x0005;
 pub const OCF_READ_TRANSMIT_POWER_LEVEL: u16 = 0x002d;
+pub const OCF_READ_BD_ADDR: u16 = 0x0009;
 
 pub const OPCODE_INQUIRY: u16 = (OGF_LINK_CTL << 10) | OCF_INQUIRY;
 pub const OPCODE_REMOTE_NAME_REQ: u16 = (OGF_LINK_CTL << 10) | OCF_REMOTE_NAME_REQ;
 pub const OPCODE_READ_RSSI: u16 = (OGF_STATUS_PARAM << 10) | OCF_READ_RSSI;
 pub const OPCODE_READ_TX_POWER: u16 = (OGF_HOST_CTL << 10) | OCF_READ_TRANSMIT_POWER_LEVEL;
+pub const OPCODE_READ_BD_ADDR: u16 = (OGF_HOST_CTL << 10) | OCF_READ_BD_ADDR;
 
 pub const HCIGETCONNINFO: u64 = 0x801848d3;
 
 pub const ACL_LINK: u8 = 1;
 pub const L2CAP_PSM: u16 = 1;
+pub const L2CAP_CID_ATT: u16 = 0x0004;
 pub const GIAC: [u8; 3] = [0x33, 0x8b, 0x9e];
 pub const TX_POWER_TYPE_CURRENT: u8 = 0;
 
@@ -91,6 +94,15 @@ pub fn sockaddr_l2cap(mac: Mac, psm: u16) -> [u8; 14] {
     a[0..2].copy_from_slice(&(AF_BLUETOOTH as u16).to_le_bytes());
     a[2..4].copy_from_slice(&psm.to_le_bytes());
     a[4..10].copy_from_slice(&mac.bytes());
+    a
+}
+
+pub fn sockaddr_l2cap_cid(mac: Mac, cid: u16) -> [u8; 14] {
+    let mut a = [0u8; 14];
+    a[0..2].copy_from_slice(&(AF_BLUETOOTH as u16).to_le_bytes());
+    a[2..4].copy_from_slice(&0u16.to_le_bytes());
+    a[4..10].copy_from_slice(&mac.bytes());
+    a[10..12].copy_from_slice(&cid.to_le_bytes());
     a
 }
 
@@ -163,6 +175,13 @@ pub fn tx_from_return(ret: &[u8]) -> Option<i8> {
         return None;
     }
     Some(ret[3] as i8)
+}
+
+pub fn bdaddr_from_return(ret: &[u8]) -> Option<[u8; 6]> {
+    if ret.len() < 7 || ret[0] != 0 {
+        return None;
+    }
+    Some([ret[1], ret[2], ret[3], ret[4], ret[5], ret[6]])
 }
 
 #[cfg(test)]
@@ -344,5 +363,37 @@ mod tests {
     fn test_tx_from_return_negative() {
         let ret = [0x00, 0x00, 0x00, 0xF6u8]; // -10
         assert_eq!(tx_from_return(&ret), Some(-10));
+    }
+
+    #[test]
+    fn test_sockaddr_l2cap_cid() {
+        let mac = Mac::parse("AA:BB:CC:DD:EE:FF").unwrap();
+        let addr = sockaddr_l2cap_cid(mac, L2CAP_CID_ATT);
+        let family = u16::from_le_bytes([addr[0], addr[1]]);
+        assert_eq!(family as i32, AF_BLUETOOTH);
+        let psm = u16::from_le_bytes([addr[2], addr[3]]);
+        assert_eq!(psm, 0);
+        assert_eq!(&addr[4..10], &mac.bytes());
+        let cid = u16::from_le_bytes([addr[10], addr[11]]);
+        assert_eq!(cid, L2CAP_CID_ATT);
+    }
+
+    #[test]
+    fn test_bdaddr_from_return_ok() {
+        let ret = [0x00, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff];
+        assert_eq!(
+            bdaddr_from_return(&ret),
+            Some([0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff])
+        );
+    }
+
+    #[test]
+    fn test_bdaddr_from_return_error_status() {
+        assert_eq!(bdaddr_from_return(&[0x01, 0, 0, 0, 0, 0, 0]), None);
+    }
+
+    #[test]
+    fn test_bdaddr_from_return_short() {
+        assert_eq!(bdaddr_from_return(&[0x00, 0x01]), None);
     }
 }

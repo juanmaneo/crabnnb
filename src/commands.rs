@@ -43,7 +43,10 @@ pub fn run_shell_with(shell: &str, cmd: &str) -> io::Result<()> {
             Some(code) => format!("exit code {code}"),
             None => "terminated by signal".to_string(),
         };
-        Err(io::Error::other(format!("command failed: {detail}")))
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            format!("command failed: {detail}"),
+        ))
     }
 }
 
