@@ -27,6 +27,8 @@ pub struct RunArgs {
     pub challenge_timeout: Duration,
     pub challenge_handle: u16,
     pub heartbeat_handle: u16,
+    pub max_roundtrip: Duration,
+    pub bridge_addr: Option<String>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -67,7 +69,9 @@ pub fn usage(prog: &str) -> String {
          \x20 --heartbeat-window-ms MS  max accepted heartbeat timestamp age/skew (default 5000)\n\
          \x20 --challenge-timeout-ms MS  wait for the heartbeat reply per poll (default 2000)\n\
          \x20 --challenge-handle H    ATT handle of the challenge characteristic (default 0x0031)\n\
-         \x20 --heartbeat-handle H    ATT handle of the heartbeat characteristic (default 0x0034)\n"
+         \x20 --heartbeat-handle H    ATT handle of the heartbeat characteristic (default 0x0034)\n\
+         \x20 --max-roundtrip-ms MS   reject heartbeats whose challenge round-trip exceeds MS (relay bound, default 250; 0 disables)\n\
+         \x20 --bridge-addr HOST:PORT  use the phone-bridge TCP transport instead of direct BLE (requires --key-file)\n"
     )
 }
 
@@ -94,6 +98,8 @@ fn defaults(mac: Mac) -> RunArgs {
         challenge_timeout: Duration::from_millis(2000),
         challenge_handle: 0x0031,
         heartbeat_handle: 0x0034,
+        max_roundtrip: Duration::from_millis(250),
+        bridge_addr: None,
     }
 }
 
@@ -219,6 +225,8 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
             "--challenge-timeout-ms" => r.challenge_timeout = millis(args, &mut i, flag)?,
             "--challenge-handle" => r.challenge_handle = handle_num(args, &mut i, flag)?,
             "--heartbeat-handle" => r.heartbeat_handle = handle_num(args, &mut i, flag)?,
+            "--max-roundtrip-ms" => r.max_roundtrip = millis(args, &mut i, flag)?,
+            "--bridge-addr" => r.bridge_addr = Some(value(args, &mut i, flag)?.to_string()),
             other => return Err(format!("unknown option '{other}'")),
         }
         i += 1;
@@ -424,5 +432,26 @@ mod tests {
         assert!(u.contains("--gen-key-file"));
         assert!(u.contains("--allow-insecure"));
         assert!(u.contains("--heartbeat-handle"));
+        assert!(u.contains("--max-roundtrip-ms"));
+        assert!(u.contains("--bridge-addr"));
+    }
+
+    #[test]
+    fn test_parse_bridge_and_roundtrip() {
+        let parsed = parse(&args(&[
+            "AA:BB:CC:DD:EE:FF",
+            "--bridge-addr",
+            "127.0.0.1:8765",
+            "--max-roundtrip-ms",
+            "300",
+        ]))
+        .unwrap();
+        match parsed {
+            Parsed::Run(r) => {
+                assert_eq!(r.bridge_addr, Some("127.0.0.1:8765".to_string()));
+                assert_eq!(r.max_roundtrip, Duration::from_millis(300));
+            }
+            _ => panic!("expected Run"),
+        }
     }
 }

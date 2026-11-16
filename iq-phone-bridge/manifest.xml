@@ -1,0 +1,15 @@
+<?xml version="1.0"?>
+<iq:manifest version="3" xmlns:iq="http://www.garmin.com/xml/connectiq">
+    <iq:application id="crabnnb-phone-bridge" type="watch-app" name="@Strings.AppName">
+        <iq:products>
+            <iq:product id="forerunner235"/>
+        </iq:products>
+        <iq:permissions>
+            <iq:uses-permission id="Garmin.ConnectIQ.Communications"/>
+        </iq:permissions>
+        <iq:languages>
+            <iq:language>eng</iq:language>
+        </iq:languages>
+        <iq:minSdkVersion>3.0.0</iq:minSdkVersion>
+    </iq:application>
+</iq:manifest>

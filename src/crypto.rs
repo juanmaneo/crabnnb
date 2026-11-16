@@ -2,8 +2,16 @@ use std::fs;
 use std::io::{self, Read, Write};
 use std::path::Path;
 
+use aes::Aes256;
+use cbc::cipher::{BlockDecryptMut, BlockEncryptMut, KeyIvInit};
 use chacha20poly1305::aead::{Aead, KeyInit, Payload};
 use chacha20poly1305::{ChaCha20Poly1305, Key, Nonce};
+use hmac::{Hmac, Mac};
+use sha2::{Digest, Sha256};
+
+type Aes256CbcEnc = cbc::Encryptor<Aes256>;
+type Aes256CbcDec = cbc::Decryptor<Aes256>;
+type HmacSha256 = Hmac<Sha256>;
 
 pub const KEY_LEN: usize = 32;
 pub const NONCE_LEN: usize = 12;
@@ -29,13 +37,7 @@ fn cipher(key: &[u8; KEY_LEN]) -> ChaCha20Poly1305 {
 
 pub fn seal(key: &[u8; KEY_LEN], nonce: &[u8; NONCE_LEN], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
     cipher(key)
-        .encrypt(
-            Nonce::from_slice(nonce),
-            Payload {
-                msg: plaintext,
-                aad,
-            },
-        )
+        .encrypt(Nonce::from_slice(nonce), Payload { msg: plaintext, aad })
         .expect("ChaCha20-Poly1305 encryption is infallible")
 }
 
@@ -46,15 +48,56 @@ pub fn open(
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
     cipher(key)
-        .decrypt(
-            Nonce::from_slice(nonce),
-            Payload {
-                msg: ciphertext,
-                aad,
-            },
-        )
+        .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad })
         .map_err(|_| CryptoError::InvalidTag)
 }
+
+pub fn sha256(data: &[u8]) -> [u8; 32] {
+    let mut h = Sha256::new();
+    h.update(data);
+    h.finalize().into()
+}
+
+pub fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
+    let mut mac =
+        <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC accepts any key length");
+    mac.update(msg);
+    mac.finalize().into_bytes().into()
+}
+
+pub fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut diff = 0u8;
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= x ^ y;
+    }
+    diff == 0
+}
+
+pub fn aes256_cbc_encrypt_raw(key: &[u8; KEY_LEN], iv: &[u8; 16], plaintext: &[u8]) -> Vec<u8> {
+    let mut buf = plaintext.to_vec();
+    buf.resize(buf.len() + 16, 0);
+    let out = Aes256CbcEnc::new(key.into(), iv.into())
+        .encrypt_padded_mut::<Pkcs7>(&mut buf, plaintext.len())
+        .expect("buffer is large enough for padding");
+    out.to_vec()
+}
+
+pub fn aes256_cbc_decrypt_raw(
+    key: &[u8; KEY_LEN],
+    iv: &[u8; 16],
+    ciphertext: &[u8],
+) -> Result<Vec<u8>, CryptoError> {
+    let mut buf = ciphertext.to_vec();
+    let out = Aes256CbcDec::new(key.into(), iv.into())
+        .decrypt_padded_mut::<Pkcs7>(&mut buf)
+        .map_err(|_| CryptoError::InvalidTag)?;
+    Ok(out.to_vec())
+}
+
+use cbc::cipher::block_padding::Pkcs7;
 
 pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
     let mut f = fs::File::open("/dev/urandom")?;
@@ -208,10 +251,7 @@ mod tests {
         let other = [0x43u8; KEY_LEN];
         let nonce = [0x07u8; NONCE_LEN];
         let sealed = seal(&key, &nonce, b"aad", b"hello");
-        assert_eq!(
-            open(&other, &nonce, b"aad", &sealed),
-            Err(CryptoError::InvalidTag)
-        );
+        assert_eq!(open(&other, &nonce, b"aad", &sealed), Err(CryptoError::InvalidTag));
     }
 
     #[test]
@@ -220,10 +260,7 @@ mod tests {
         let nonce = [0x07u8; NONCE_LEN];
         let mut sealed = seal(&key, &nonce, b"aad", b"hello");
         sealed[3] ^= 0x01;
-        assert_eq!(
-            open(&key, &nonce, b"aad", &sealed),
-            Err(CryptoError::InvalidTag)
-        );
+        assert_eq!(open(&key, &nonce, b"aad", &sealed), Err(CryptoError::InvalidTag));
     }
 
     #[test]
@@ -231,10 +268,60 @@ mod tests {
         let key = [0x42u8; KEY_LEN];
         let nonce = [0x07u8; NONCE_LEN];
         let sealed = seal(&key, &nonce, b"aad-1", b"hello");
-        assert_eq!(
-            open(&key, &nonce, b"aad-2", &sealed),
-            Err(CryptoError::InvalidTag)
-        );
+        assert_eq!(open(&key, &nonce, b"aad-2", &sealed), Err(CryptoError::InvalidTag));
+    }
+
+    #[test]
+    fn test_hmac_sha256_rfc4231_case1() {
+        let key = [0x0bu8; 20];
+        let mac = hmac_sha256(&key, b"Hi There");
+        let expected: [u8; 32] = [
+            0xb0, 0x34, 0x4c, 0x61, 0xd8, 0xdb, 0x38, 0x53, 0x5c, 0xa8, 0xaf, 0xce, 0xaf, 0x0b,
+            0xf1, 0x2b, 0x88, 0x1d, 0xc2, 0x00, 0xc9, 0x83, 0x3d, 0xa7, 0x26, 0xe9, 0x37, 0x6c,
+            0x2e, 0x32, 0xcf, 0xf7,
+        ];
+        assert_eq!(mac, expected);
+    }
+
+    #[test]
+    fn test_aes256_cbc_nist_vector() {
+        let key: [u8; 32] = [
+            0x60, 0x3d, 0xeb, 0x10, 0x15, 0xca, 0x71, 0xbe, 0x2b, 0x73, 0xae, 0xf0, 0x85, 0x7d,
+            0x77, 0x81, 0x1f, 0x35, 0x2c, 0x07, 0x3b, 0x61, 0x08, 0xd7, 0x2d, 0x98, 0x10, 0xa3,
+            0x09, 0x14, 0xdf, 0xf4,
+        ];
+        let iv: [u8; 16] = [
+            0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a, 0x0b, 0x0c, 0x0d,
+            0x0e, 0x0f,
+        ];
+        let pt = [
+            0x6b, 0xc1, 0xbe, 0xe2, 0x2e, 0x40, 0x9f, 0x96, 0xe9, 0x3d, 0x7e, 0x11, 0x73, 0x93,
+            0x17, 0x2a,
+        ];
+        let ct = aes256_cbc_encrypt_raw(&key, &iv, &pt);
+        let nist_ct: [u8; 16] = [
+            0xf5, 0x8c, 0x4c, 0x04, 0xd6, 0xe5, 0xf1, 0xba, 0x77, 0x9e, 0xab, 0xfb, 0x5f, 0x7b,
+            0xfb, 0xd6,
+        ];
+        assert_eq!(&ct[..16], &nist_ct);
+        assert_eq!(ct.len(), 32);
+        assert_eq!(aes256_cbc_decrypt_raw(&key, &iv, &ct).unwrap(), pt);
+    }
+
+    #[test]
+    fn test_aes_cbc_tamper_fails() {
+        let key = [0x42u8; 32];
+        let iv = [0x07u8; 16];
+        let mut ct = aes256_cbc_encrypt_raw(&key, &iv, b"hello");
+        ct[3] ^= 0x01;
+        assert!(aes256_cbc_decrypt_raw(&key, &iv, &ct).is_err());
+    }
+
+    #[test]
+    fn test_constant_time_eq() {
+        assert!(constant_time_eq(b"abc", b"abc"));
+        assert!(!constant_time_eq(b"abc", b"abd"));
+        assert!(!constant_time_eq(b"abc", b"ab"));
     }
 
     #[test]
@@ -269,8 +356,7 @@ mod tests {
 
     #[test]
     fn test_load_key_rejects_loose_permissions() {
-        let dir =
-            std::env::temp_dir().join(format!("crabnnb-crypto-test-perm-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("crabnnb-crypto-test-perm-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("key.hex");
         fs::write(&path, to_hex(&[0x42u8; KEY_LEN])).unwrap();
@@ -287,8 +373,7 @@ mod tests {
 
     #[test]
     fn test_load_key_rejects_wrong_length() {
-        let dir =
-            std::env::temp_dir().join(format!("crabnnb-crypto-test-len-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("crabnnb-crypto-test-len-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("key.hex");
         #[cfg(unix)]

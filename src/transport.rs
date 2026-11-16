@@ -13,11 +13,7 @@ pub struct HciTransport<'a, S: Sys> {
 
 impl<'a, S: Sys> HciTransport<'a, S> {
     pub fn open(sys: &'a S) -> io::Result<Self> {
-        let fd = sys.socket(
-            hci::AF_BLUETOOTH,
-            hci::SOCK_RAW | hci::SOCK_CLOEXEC,
-            hci::BTPROTO_HCI,
-        )?;
+        let fd = sys.socket(hci::AF_BLUETOOTH, hci::SOCK_RAW | hci::SOCK_CLOEXEC, hci::BTPROTO_HCI)?;
         if let Err(e) = sys.bind(fd, &hci::sockaddr_hci_raw()) {
             let _ = sys.close(fd);
             return Err(e);
@@ -79,7 +75,9 @@ impl<'a, S: Sys> HciTransport<'a, S> {
 
     pub fn conn_handle(&mut self, mac: Mac) -> io::Result<u16> {
         let mut req = hci::conn_info_request(mac);
-        let n = self.sys.ioctl(self.hci_fd, hci::HCIGETCONNINFO, &mut req)?;
+        let n = self
+            .sys
+            .ioctl(self.hci_fd, hci::HCIGETCONNINFO, &mut req)?;
         hci::parse_conn_handle(&req[..n])
     }
 

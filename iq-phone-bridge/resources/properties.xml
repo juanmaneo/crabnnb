@@ -1,0 +1,4 @@
+<?xml version="1.0"?>
+<properties>
+    <property id="pairingKey" type="string" label="@Strings.PairingKeyTitle" description="@Strings.PairingKeyDesc"></property>
+</properties>

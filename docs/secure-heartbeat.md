@@ -129,17 +129,40 @@ unlock the session.
   `CapabilityBoundingSet=CAP_NET_ADMIN` instead of running as full root.
 * The key file must be mode `0600` (enforced at load time).
 
+## Relay-attack mitigation (implemented)
+
+* **RTT bound**: the heartbeat must echo the fresh per-poll challenge, so the
+  PC can measure the challenge→heartbeat round trip and reject anything slower
+  than `--max-roundtrip-ms` (default 250 ms, 0 disables; verbose mode prints
+  the measured RTT). A relay adds its backhaul hop latency and is rejected as
+  `TooSlow`. In `--bridge-addr` mode there is no RSSI, so this bound *is* the
+  distance bound. Calibrate with `--once --dry-run --verbose`.
+* **RSSI second factor** (direct BLE): unlock also needs distance below
+  `--max-distance-cm`. A relay attacker near the PC reads strong RSSI, so RSSI
+  defeats non-relay spoofing, not relays — the crypto tag + RTT bound do that.
+* **Hardware distance bounding** (strongest): BLE Channel Sounding (BT 6.0
+  phase-based ranging) or UWB (DW3000/FiRa) between PC and watch — requires
+  capable radios on both ends (not on the FR235). Enforce a physical distance
+  ceiling on top of the crypto heartbeat when available.
+* BLE link-layer encryption (LE Secure Connections pairing) recommended as
+  defense-in-depth.
+
 ## Residual risks
 
-* **Relay attacks**: an attacker with two radios between you and the PC could
-  forward the watch's heartbeat while you are away. The freshness window and
-  challenge-response bound this to `--heartbeat-window-ms`, but do not fully
-  eliminate it. True mitigation is distance bounding (BLE Channel Sounding /
-  UWB) or the RSSI second factor (attacker near the PC reads strong RSSI, so
-  keep `--max-distance-cm` tight). For most threat models (Flipper Zero in a
-  pocket) the AEAD heartbeat is decisive.
+* Application-layer RTT bounding is coarse compared to physical-layer distance
+  bounding; a very fast relay could theoretically stay under the bound — hence
+  keep `--max-roundtrip-ms` as tight as your link allows and prefer CS/UWB on
+  capable hardware.
 * **Key compromise**: if the key file leaks, revoke by generating a new key and
   re-provisioning the watch side.
-* BLE link-layer encryption (pairing / LE Secure Connections) is recommended as
-  defense-in-depth; the heartbeat itself carries no secrets, so the AEAD tag is
-  what defeats spoofing even on an unencrypted link.
+* The heartbeat carries no secrets, so the AEAD/HMAC tag is what defeats
+  spoofing even on an unencrypted link.
+
+## Phone bridge
+
+Devices that cannot host a GATT server (e.g. Forerunner 235 — Connect IQ BLE
+is central-only there) use `--bridge-addr HOST:PORT`: the PC talks TCP to a
+phone companion, which relays to the watch IQ app over `Toybox.Communications`.
+The bridge heartbeat uses mode 1 (AES-256-CBC + HMAC-SHA256 encrypt-then-MAC,
+81 bytes) because Monkey C has AES/SHA-256 but no AEAD. See
+[phone-bridge.md](phone-bridge.md) and `iq-phone-bridge/`.

@@ -1,5 +1,6 @@
 // Bluetooth proximity detection modules
 pub mod att;
+pub mod bridge;
 pub mod cli;
 pub mod clock;
 pub mod commands;
