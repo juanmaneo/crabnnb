@@ -128,9 +128,10 @@ impl<'s, S: Sys> BleDevice<'s, S> {
                     match att::parse_att(&payload) {
                         Some(AttPdu::ExchangeMtuRsp(mtu)) => return Ok(mtu),
                         Some(AttPdu::Error { error_code, .. }) => {
-                            return Err(io::Error::other(format!(
-                                "ATT error during MTU exchange: 0x{error_code:02x}"
-                            )));
+                            return Err(io::Error::new(
+                                io::ErrorKind::Other,
+                                format!("ATT error during MTU exchange: 0x{error_code:02x}"),
+                            ));
                         }
                         _ => {}
                     }
@@ -193,7 +194,9 @@ impl<'s, S: Sys> BleDevice<'s, S> {
     pub fn local_mac(&mut self) -> io::Result<Mac> {
         let ret = self
             .host_query(hci::OPCODE_READ_BD_ADDR, &[])
-            .ok_or_else(|| io::Error::other("no response to HCI Read BD ADDR"))?;
+            .ok_or_else(|| {
+                io::Error::new(io::ErrorKind::Other, "no response to HCI Read BD ADDR")
+            })?;
         let bytes = hci::bdaddr_from_return(&ret).ok_or_else(|| {
             io::Error::new(io::ErrorKind::InvalidData, "malformed Read BD ADDR return")
         })?;
@@ -227,7 +230,7 @@ impl<'s, S: Sys> BleDevice<'s, S> {
                             handle,
                             error_code,
                         }) => {
-                            return Err(io::Error::other(format!(
+                            return Err(io::Error::new(io::ErrorKind::Other, format!(
                                 "ATT error (req 0x{req_opcode:02x}, handle 0x{handle:04x}): 0x{error_code:02x}"
                             )));
                         }
