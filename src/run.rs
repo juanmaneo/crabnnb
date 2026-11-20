@@ -196,11 +196,7 @@ pub fn run_cli<S: Sys>(
     };
     let mut dry = DryRunner::default();
     let mut shell = ShellRunner;
-    let runner: &mut dyn CmdRunner = if parsed.dry_run {
-        &mut dry
-    } else {
-        &mut shell
-    };
+    let runner: &mut dyn CmdRunner = if parsed.dry_run { &mut dry } else { &mut shell };
     let mut clock = SystemClock;
     if let Some(addr) = &parsed.bridge_addr {
         let mut device = match BridgeDevice::connect(addr, parsed.challenge_timeout) {
@@ -356,12 +352,7 @@ mod tests {
                     let nonce: [u8; 12] = [0x42u8; 12];
                     let aad = heartbeat::aad(&self.watch, &self.local);
                     Ok(Some(heartbeat::seal_heartbeat(
-                        &self.key,
-                        &aad,
-                        counter,
-                        ts_ms,
-                        challenge,
-                        &nonce,
+                        &self.key, &aad, counter, ts_ms, challenge, &nonce,
                     )))
                 }
                 ProbeStep::Raw(b) => Ok(Some(b)),
@@ -558,8 +549,7 @@ mod tests {
                 let ts = (now_ms() / 1000) as u32;
                 let msg = heartbeat::seal_heartbeat_bridge(&key, counter, ts, &chal, &[0x09u8; 16]);
                 counter += 1;
-                if s
-                    .write_all(&(msg.len() as u32).to_le_bytes())
+                if s.write_all(&(msg.len() as u32).to_le_bytes())
                     .and_then(|_| s.write_all(&msg))
                     .is_err()
                 {
@@ -625,8 +615,7 @@ mod tests {
                 std::thread::sleep(Duration::from_millis(50));
                 let ts = (now_ms() / 1000) as u32;
                 let msg = heartbeat::seal_heartbeat_bridge(&key, 1, ts, &chal, &[0x09u8; 16]);
-                if s
-                    .write_all(&(msg.len() as u32).to_le_bytes())
+                if s.write_all(&(msg.len() as u32).to_le_bytes())
                     .and_then(|_| s.write_all(&msg))
                     .is_err()
                 {

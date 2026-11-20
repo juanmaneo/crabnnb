@@ -37,7 +37,13 @@ fn cipher(key: &[u8; KEY_LEN]) -> ChaCha20Poly1305 {
 
 pub fn seal(key: &[u8; KEY_LEN], nonce: &[u8; NONCE_LEN], aad: &[u8], plaintext: &[u8]) -> Vec<u8> {
     cipher(key)
-        .encrypt(Nonce::from_slice(nonce), Payload { msg: plaintext, aad })
+        .encrypt(
+            Nonce::from_slice(nonce),
+            Payload {
+                msg: plaintext,
+                aad,
+            },
+        )
         .expect("ChaCha20-Poly1305 encryption is infallible")
 }
 
@@ -48,7 +54,13 @@ pub fn open(
     ciphertext: &[u8],
 ) -> Result<Vec<u8>, CryptoError> {
     cipher(key)
-        .decrypt(Nonce::from_slice(nonce), Payload { msg: ciphertext, aad })
+        .decrypt(
+            Nonce::from_slice(nonce),
+            Payload {
+                msg: ciphertext,
+                aad,
+            },
+        )
         .map_err(|_| CryptoError::InvalidTag)
 }
 
@@ -59,8 +71,7 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
 }
 
 pub fn hmac_sha256(key: &[u8], msg: &[u8]) -> [u8; 32] {
-    let mut mac =
-        <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC accepts any key length");
+    let mut mac = <HmacSha256 as Mac>::new_from_slice(key).expect("HMAC accepts any key length");
     mac.update(msg);
     mac.finalize().into_bytes().into()
 }
@@ -251,7 +262,10 @@ mod tests {
         let other = [0x43u8; KEY_LEN];
         let nonce = [0x07u8; NONCE_LEN];
         let sealed = seal(&key, &nonce, b"aad", b"hello");
-        assert_eq!(open(&other, &nonce, b"aad", &sealed), Err(CryptoError::InvalidTag));
+        assert_eq!(
+            open(&other, &nonce, b"aad", &sealed),
+            Err(CryptoError::InvalidTag)
+        );
     }
 
     #[test]
@@ -260,7 +274,10 @@ mod tests {
         let nonce = [0x07u8; NONCE_LEN];
         let mut sealed = seal(&key, &nonce, b"aad", b"hello");
         sealed[3] ^= 0x01;
-        assert_eq!(open(&key, &nonce, b"aad", &sealed), Err(CryptoError::InvalidTag));
+        assert_eq!(
+            open(&key, &nonce, b"aad", &sealed),
+            Err(CryptoError::InvalidTag)
+        );
     }
 
     #[test]
@@ -268,7 +285,10 @@ mod tests {
         let key = [0x42u8; KEY_LEN];
         let nonce = [0x07u8; NONCE_LEN];
         let sealed = seal(&key, &nonce, b"aad-1", b"hello");
-        assert_eq!(open(&key, &nonce, b"aad-2", &sealed), Err(CryptoError::InvalidTag));
+        assert_eq!(
+            open(&key, &nonce, b"aad-2", &sealed),
+            Err(CryptoError::InvalidTag)
+        );
     }
 
     #[test]
@@ -356,7 +376,8 @@ mod tests {
 
     #[test]
     fn test_load_key_rejects_loose_permissions() {
-        let dir = std::env::temp_dir().join(format!("crabnnb-crypto-test-perm-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("crabnnb-crypto-test-perm-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("key.hex");
         fs::write(&path, to_hex(&[0x42u8; KEY_LEN])).unwrap();
@@ -373,7 +394,8 @@ mod tests {
 
     #[test]
     fn test_load_key_rejects_wrong_length() {
-        let dir = std::env::temp_dir().join(format!("crabnnb-crypto-test-len-{}", std::process::id()));
+        let dir =
+            std::env::temp_dir().join(format!("crabnnb-crypto-test-len-{}", std::process::id()));
         fs::create_dir_all(&dir).unwrap();
         let path = dir.join("key.hex");
         #[cfg(unix)]

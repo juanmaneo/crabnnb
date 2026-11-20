@@ -42,8 +42,13 @@ impl std::fmt::Display for HeartbeatError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             HeartbeatError::Malformed => write!(f, "malformed heartbeat message"),
-            HeartbeatError::InvalidTag => write!(f, "authentication tag mismatch (wrong key or tampered message)"),
-            HeartbeatError::ChallengeMismatch => write!(f, "heartbeat does not echo the outstanding challenge"),
+            HeartbeatError::InvalidTag => write!(
+                f,
+                "authentication tag mismatch (wrong key or tampered message)"
+            ),
+            HeartbeatError::ChallengeMismatch => {
+                write!(f, "heartbeat does not echo the outstanding challenge")
+            }
             HeartbeatError::Replay => write!(f, "counter not increasing (replayed heartbeat)"),
             HeartbeatError::Stale => write!(f, "heartbeat timestamp outside freshness window"),
         }
@@ -88,7 +93,14 @@ pub fn seal_heartbeat_v2(
 ) -> Vec<u8> {
     let mut msg = Vec::with_capacity(MESSAGE_LEN_V2);
     msg.push(MODE_AEAD);
-    msg.extend_from_slice(&seal_heartbeat(key, aad, counter, timestamp_ms, challenge, nonce));
+    msg.extend_from_slice(&seal_heartbeat(
+        key,
+        aad,
+        counter,
+        timestamp_ms,
+        challenge,
+        nonce,
+    ));
     msg
 }
 
@@ -238,8 +250,16 @@ mod tests {
         let aad = aad(&watch(), &local());
         let chal = challenge();
         let msg = seal_heartbeat(&key(), &aad, 1, 1000, &chal, &nonce());
-        let err = open_heartbeat(&[0x43u8; KEY_LEN], &aad, &msg, &chal, 0, 1000, Duration::from_secs(5))
-            .unwrap_err();
+        let err = open_heartbeat(
+            &[0x43u8; KEY_LEN],
+            &aad,
+            &msg,
+            &chal,
+            0,
+            1000,
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
         assert_eq!(err, HeartbeatError::InvalidTag);
     }
 
@@ -249,7 +269,8 @@ mod tests {
         let chal = challenge();
         let mut msg = seal_heartbeat(&key(), &aad, 1, 1000, &chal, &nonce());
         msg[MESSAGE_LEN - 1] ^= 0x80;
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 0, 1000, Duration::from_secs(5)).unwrap_err();
+        let err =
+            open_heartbeat(&key(), &aad, &msg, &chal, 0, 1000, Duration::from_secs(5)).unwrap_err();
         assert_eq!(err, HeartbeatError::InvalidTag);
     }
 
@@ -259,8 +280,8 @@ mod tests {
         let other = aad(&local(), &watch());
         let chal = challenge();
         let msg = seal_heartbeat(&key(), &aad_bytes, 1, 1000, &chal, &nonce());
-        let err =
-            open_heartbeat(&key(), &other, &msg, &chal, 0, 1000, Duration::from_secs(5)).unwrap_err();
+        let err = open_heartbeat(&key(), &other, &msg, &chal, 0, 1000, Duration::from_secs(5))
+            .unwrap_err();
         assert_eq!(err, HeartbeatError::InvalidTag);
     }
 
@@ -270,8 +291,16 @@ mod tests {
         let chal = challenge();
         let other_chal: Vec<u8> = (100u8..100 + CHALLENGE_LEN as u8).collect();
         let msg = seal_heartbeat(&key(), &aad, 1, 1000, &chal, &nonce());
-        let err =
-            open_heartbeat(&key(), &aad, &msg, &other_chal, 0, 1000, Duration::from_secs(5)).unwrap_err();
+        let err = open_heartbeat(
+            &key(),
+            &aad,
+            &msg,
+            &other_chal,
+            0,
+            1000,
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
         assert_eq!(err, HeartbeatError::ChallengeMismatch);
     }
 
@@ -280,9 +309,11 @@ mod tests {
         let aad = aad(&watch(), &local());
         let chal = challenge();
         let msg = seal_heartbeat(&key(), &aad, 5, 1000, &chal, &nonce());
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 5, 1000, Duration::from_secs(5)).unwrap_err();
+        let err =
+            open_heartbeat(&key(), &aad, &msg, &chal, 5, 1000, Duration::from_secs(5)).unwrap_err();
         assert_eq!(err, HeartbeatError::Replay);
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 9, 1000, Duration::from_secs(5)).unwrap_err();
+        let err =
+            open_heartbeat(&key(), &aad, &msg, &chal, 9, 1000, Duration::from_secs(5)).unwrap_err();
         assert_eq!(err, HeartbeatError::Replay);
     }
 
@@ -292,7 +323,8 @@ mod tests {
         let chal = challenge();
         let now = 1_000_000u64;
         let msg = seal_heartbeat(&key(), &aad, 1, now - 6_000, &chal, &nonce());
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 0, now, Duration::from_secs(5)).unwrap_err();
+        let err =
+            open_heartbeat(&key(), &aad, &msg, &chal, 0, now, Duration::from_secs(5)).unwrap_err();
         assert_eq!(err, HeartbeatError::Stale);
     }
 
@@ -302,7 +334,8 @@ mod tests {
         let chal = challenge();
         let now = 1_000_000u64;
         let msg = seal_heartbeat(&key(), &aad, 1, now + 6_000, &chal, &nonce());
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 0, now, Duration::from_secs(5)).unwrap_err();
+        let err =
+            open_heartbeat(&key(), &aad, &msg, &chal, 0, now, Duration::from_secs(5)).unwrap_err();
         assert_eq!(err, HeartbeatError::Stale);
     }
 
@@ -320,7 +353,16 @@ mod tests {
     fn test_malformed_length_rejected() {
         let aad = aad(&watch(), &local());
         let chal = challenge();
-        let err = open_heartbeat(&key(), &aad, &[0u8; 10], &chal, 0, 0, Duration::from_secs(5)).unwrap_err();
+        let err = open_heartbeat(
+            &key(),
+            &aad,
+            &[0u8; 10],
+            &chal,
+            0,
+            0,
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
         assert_eq!(err, HeartbeatError::Malformed);
     }
 
@@ -353,7 +395,8 @@ mod tests {
         assert_eq!(msg.len(), BRIDGE_MESSAGE_LEN);
         assert_eq!(msg[0], MODE_AES_CBC_HMAC);
         let now_ms = 1_700_000_000_000u64;
-        let hb = open_heartbeat(&key(), &aad, &msg, &chal, 8, now_ms, Duration::from_secs(5)).unwrap();
+        let hb =
+            open_heartbeat(&key(), &aad, &msg, &chal, 8, now_ms, Duration::from_secs(5)).unwrap();
         assert_eq!(hb.counter, 9);
         assert_eq!(hb.timestamp_ms, 1_700_000_000_000);
     }
@@ -383,7 +426,16 @@ mod tests {
         let mut msg = seal_heartbeat_bridge(&key(), 1, 1_000_000, &chal, &[0x05u8; 16]);
         let last = msg.len() - 1;
         msg[last] ^= 0x01;
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 0, 1_000_000_000, Duration::from_secs(5)).unwrap_err();
+        let err = open_heartbeat(
+            &key(),
+            &aad,
+            &msg,
+            &chal,
+            0,
+            1_000_000_000,
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
         assert_eq!(err, HeartbeatError::InvalidTag);
     }
 
@@ -393,7 +445,16 @@ mod tests {
         let chal = challenge();
         let mut msg = seal_heartbeat_bridge(&key(), 1, 1_000_000, &chal, &[0x05u8; 16]);
         msg[20] ^= 0x01;
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 0, 1_000_000_000, Duration::from_secs(5)).unwrap_err();
+        let err = open_heartbeat(
+            &key(),
+            &aad,
+            &msg,
+            &chal,
+            0,
+            1_000_000_000,
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
         assert_eq!(err, HeartbeatError::InvalidTag);
     }
 
@@ -402,9 +463,27 @@ mod tests {
         let aad = aad(&watch(), &local());
         let chal = challenge();
         let msg = seal_heartbeat_bridge(&key(), 7, 1_000_000, &chal, &[0x05u8; 16]);
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 7, 1_000_000_000, Duration::from_secs(5)).unwrap_err();
+        let err = open_heartbeat(
+            &key(),
+            &aad,
+            &msg,
+            &chal,
+            7,
+            1_000_000_000,
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
         assert_eq!(err, HeartbeatError::Replay);
-        let err = open_heartbeat(&key(), &aad, &msg, &chal, 0, 1_000_000_000 + 6_000, Duration::from_secs(5)).unwrap_err();
+        let err = open_heartbeat(
+            &key(),
+            &aad,
+            &msg,
+            &chal,
+            0,
+            1_000_000_000 + 6_000,
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
         assert_eq!(err, HeartbeatError::Stale);
     }
 
@@ -414,7 +493,16 @@ mod tests {
         let chal = challenge();
         let other: Vec<u8> = (200u8..200 + CHALLENGE_LEN as u8).collect();
         let msg = seal_heartbeat_bridge(&key(), 1, 1_000_000, &chal, &[0x05u8; 16]);
-        let err = open_heartbeat(&key(), &aad, &msg, &other, 0, 1_000_000_000, Duration::from_secs(5)).unwrap_err();
+        let err = open_heartbeat(
+            &key(),
+            &aad,
+            &msg,
+            &other,
+            0,
+            1_000_000_000,
+            Duration::from_secs(5),
+        )
+        .unwrap_err();
         assert_eq!(err, HeartbeatError::ChallengeMismatch);
     }
 }

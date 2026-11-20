@@ -23,7 +23,10 @@ pub enum AttPdu {
     ExchangeMtuRsp(u16),
     WriteRsp,
     ReadRsp(Vec<u8>),
-    Notification { handle: u16, value: Vec<u8> },
+    Notification {
+        handle: u16,
+        value: Vec<u8>,
+    },
     Other(u8),
 }
 
@@ -55,7 +58,9 @@ pub fn parse_att(buf: &[u8]) -> Option<AttPdu> {
             error_code: rest[3],
         }),
         op::EXCHANGE_MTU_RSP if rest.len() >= 2 => {
-            Some(AttPdu::ExchangeMtuRsp(u16::from_le_bytes([rest[0], rest[1]])))
+            Some(AttPdu::ExchangeMtuRsp(u16::from_le_bytes([
+                rest[0], rest[1],
+            ])))
         }
         op::WRITE_RSP => Some(AttPdu::WriteRsp),
         op::READ_RSP => Some(AttPdu::ReadRsp(rest.to_vec())),

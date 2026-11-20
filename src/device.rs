@@ -267,9 +267,7 @@ impl<'s, S: Sys> BleDevice<'s, S> {
         loop {
             match self.transport.next_event()? {
                 None => break,
-                Some(HciEvent::InquiryResult { num_responses }) => {
-                    count += num_responses as usize
-                }
+                Some(HciEvent::InquiryResult { num_responses }) => count += num_responses as usize,
                 Some(HciEvent::InquiryComplete) => break,
                 Some(_) => {}
             }

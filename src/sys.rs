@@ -92,8 +92,13 @@ fn cvt(ret: i64) -> io::Result<i64> {
 
 pub trait Sys {
     fn socket(&self, domain: i32, ty: i32, protocol: i32) -> io::Result<RawFd>;
-    fn socketpair(&self, domain: i32, ty: i32, protocol: i32, fds: &mut [RawFd; 2])
-        -> io::Result<()>;
+    fn socketpair(
+        &self,
+        domain: i32,
+        ty: i32,
+        protocol: i32,
+        fds: &mut [RawFd; 2],
+    ) -> io::Result<()>;
     fn bind(&self, fd: RawFd, addr: &[u8]) -> io::Result<()>;
     fn listen(&self, fd: RawFd, backlog: i32) -> io::Result<()>;
     fn connect(&self, fd: RawFd, addr: &[u8]) -> io::Result<()>;
