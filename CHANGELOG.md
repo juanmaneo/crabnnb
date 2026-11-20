@@ -14,7 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 - Challenge RTT policy: `--max-roundtrip-ms` rejects slow responses and reports measured RTT in verbose mode. This is not physical distance bounding; a relay that responds under the threshold may pass.
-- Phone-bridge transport for devices that cannot host GATT (e.g. Forerunner 235): `--bridge-addr HOST:PORT` connects to a phone companion over TCP with `u32le len ‖ payload` framing; new `src/bridge.rs` (`BridgeDevice` implements `BtOps`)
+- Phone-bridge transport for devices that cannot host GATT (e.g. Forerunner 235): `--bridge-addr HOST:PORT` connects to a phone companion over TCP with strict little-endian framing, fixed challenge/heartbeat lengths, TCP connect/read/write timeouts, and reconnect after malformed or truncated exchanges; `src/bridge.rs` (`BridgeDevice` implements `BtOps`)
 - Second heartbeat wire mode for constrained devices: `MODE_AES_CBC_HMAC` (81 bytes: `0x01 ‖ iv ‖ AES-256-CBC-PKCS7(counter‖ts‖challenge) ‖ HMAC-SHA256`) — encrypt-then-MAC using AES/SHA-256, available in Monkey C's `Toybox.Cryptography`; verified with HMAC RFC 4231 and NIST AES-256-CBC vectors
 - `iq-phone-bridge/`: uncompiled Connect IQ watch-app prototype for the FR235; SDK calls and crypto API are not hardware-validated
 - `phone-bridge-android/`: incomplete Android companion skeleton; TCP framing is present but Connect IQ SDK relay callbacks remain unimplemented and fail closed
