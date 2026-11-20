@@ -13,9 +13,11 @@ entry points are marked with TODO and must be matched to the installed SDK:
 
 See `src/main/java/com/example/crabnnbbridge/MainActivity.kt` for the loop.
 
-Security notes: the bridge only carries the random challenge and the encrypted
-heartbeat — no key material crosses it. Restrict the TCP listener to localhost
-(adb forward) or your LAN; use TLS if the phone and PC are on untrusted
-networks. The PC side still enforces the AEAD/HMAC tag, replay counter,
-freshness window and `--max-roundtrip-ms` RTT bound, so a compromised phone
-cannot unlock the PC on its own.
+Security/status notes: this is not a functional companion yet. The Connect IQ
+Mobile SDK callbacks are not implemented; requests fail closed instead of
+returning a placeholder heartbeat. The TCP listener binds only to
+`127.0.0.1` for use with `adb forward`, and the framing itself is not
+transport-authenticated or encrypted. Do not expose it on a LAN. A local
+intermediary can drop/delay frames (denial of service); heartbeat verification
+prevents forging a valid response without the shared key. The RTT setting is a
+latency limit, not a physical distance bound.

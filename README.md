@@ -30,8 +30,8 @@ This project requires Rust 1.70.0 or later.
 - Raw HCI socket communication (no libbluetooth; pure-Rust crates only)
 - **Encrypted, authenticated heartbeat (challenge-response) between watch and PC** — secure by default; MAC+RSSI alone is never enough to unlock
 - ChaCha20-Poly1305 (RFC 8439) AEAD with replay protection (monotonic counter), freshness window and challenge binding (direct BLE), or AES-256-CBC + HMAC-SHA256 encrypt-then-MAC (phone bridge)
-- **Relay-attack mitigation**: challenge round-trip-time bound (`--max-roundtrip-ms`) plus the RSSI distance factor in direct-BLE mode
-- **Phone-bridge mode** (`--bridge-addr`) for watches that cannot host a GATT server (see `iq-phone-bridge/`)
+- Challenge round-trip latency limit (`--max-roundtrip-ms`); this is not physical distance bounding and does not stop every relay
+- Phone-bridge prototype (`--bridge-addr`) for watches that cannot host GATT; Android/Connect IQ integration is incomplete and untested
 - L2CAP/ATT (GATT client) channel with MTU exchange, plus RSSI and TX power reading
 - Log-distance path-loss model with polynomial accuracy curves
 - Sample averaging for stable distance measurements
@@ -87,7 +87,7 @@ Secure heartbeat (required unless --allow-insecure):
 --challenge-timeout-ms MS  Wait for the heartbeat reply per poll (default: 2000)
 --challenge-handle H   ATT handle of the challenge characteristic (default: 0x0031)
 --heartbeat-handle H   ATT handle of the heartbeat characteristic (default: 0x0034)
---max-roundtrip-ms MS  Reject heartbeats slower than this challenge round-trip (relay bound, default: 250; 0 disables)
+--max-roundtrip-ms MS  Reject slow challenge responses (latency limit, not distance proof; default 250; 0 disables)
 --bridge-addr HOST:PORT  Use the phone-bridge TCP transport instead of direct BLE (requires --key-file)
 ```
 
@@ -95,12 +95,14 @@ Secure heartbeat (required unless --allow-insecure):
 
 ```bash
 # PC: connect to the phone companion (e.g. adb forward tcp:8765 tcp:8765)
-crabnnb WATCH_ID --key-file /etc/crabnnb/key.hex --bridge-addr 127.0.0.1:8765
+crabnnb AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex --bridge-addr 127.0.0.1:8765
 ```
 
-The watch runs the Connect IQ app in [`iq-phone-bridge/`](iq-phone-bridge/README.md)
-and the phone runs the companion in [`phone-bridge-android/`](phone-bridge-android/README.md).
-Full architecture and wire format: [`docs/phone-bridge.md`](docs/phone-bridge.md).
+The intended watch app is in [`iq-phone-bridge/`](iq-phone-bridge/README.md) and
+Android companion prototype in [`phone-bridge-android/`](phone-bridge-android/README.md).
+The bridge is not operational yet: Connect IQ callbacks are unfinished, the apps
+are not built against their SDKs, and no FR235 hardware test has been done. See
+[`docs/phone-bridge.md`](docs/phone-bridge.md) for status and wire format.
 
 ### Provisioning the shared key
 
@@ -280,7 +282,7 @@ cargo test
 3. The key file must be mode `0600`; crabnnb refuses looser permissions. Provision it out-of-band, never over BLE. Rotate with `--gen-key-file` if it leaks.
 4. Lock/unlock commands run with your user privileges; run the service with `CAP_NET_ADMIN` only (see the systemd unit above), not as full root.
 5. `--allow-insecure` restores the old MAC+RSSI-only behavior and is intended for testing only — it is spoofable and prints a warning.
-6. Relay attacks: the heartbeat must echo a fresh per-poll challenge within `--max-roundtrip-ms` (default 250 ms), so any relay hop adds latency and is rejected; in direct-BLE mode the RSSI distance (`--max-distance-cm`) is a second factor. For the strongest bound use BLE Channel Sounding / UWB distance bounding (hardware-dependent) and BLE pairing for link encryption. See [docs/phone-bridge.md](docs/phone-bridge.md#relay-attack-mitigation).
+6. Relay attacks: `--max-roundtrip-ms` (default 250 ms) is only an application-level latency limit, not a physical distance bound. A relay that responds within the threshold can pass; direct-BLE RSSI is also not secure distance bounding. Use suitable, validated UWB/BLE Channel Sounding hardware if physical distance assurance is required. See [docs/phone-bridge.md](docs/phone-bridge.md#relay-attacks-and-round-trip-latency).
 7. Ensure your system's Bluetooth stack is up-to-date; consider the privacy implications of Bluetooth device tracking.
 
 ### Garmin Forerunner 235 note

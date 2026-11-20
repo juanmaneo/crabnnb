@@ -13,12 +13,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Key files are provisioned with `--gen-key-file` (random 32 bytes, mode 0600, never overwritten) and rejected at load time if readable by group/others.
 
 ### Added
-- Relay-attack mitigation: every heartbeat must return within `--max-roundtrip-ms` (default 250, 0 disables) of its challenge (`ProbeError::TooSlow`); measured RTT is printed in verbose mode. In bridge mode (no RSSI) this bound is the distance bound
+- Challenge RTT policy: `--max-roundtrip-ms` rejects slow responses and reports measured RTT in verbose mode. This is not physical distance bounding; a relay that responds under the threshold may pass.
 - Phone-bridge transport for devices that cannot host GATT (e.g. Forerunner 235): `--bridge-addr HOST:PORT` connects to a phone companion over TCP with `u32le len ‖ payload` framing; new `src/bridge.rs` (`BridgeDevice` implements `BtOps`)
 - Second heartbeat wire mode for constrained devices: `MODE_AES_CBC_HMAC` (81 bytes: `0x01 ‖ iv ‖ AES-256-CBC-PKCS7(counter‖ts‖challenge) ‖ HMAC-SHA256`) — encrypt-then-MAC using AES/SHA-256, available in Monkey C's `Toybox.Cryptography`; verified with HMAC RFC 4231 and NIST AES-256-CBC vectors
-- `iq-phone-bridge/`: Connect IQ watch app (Monkey C) for the FR235 — answers PC challenges over `Toybox.Communications` with the mode-1 heartbeat, counter persisted in `Toybox.Storage`
-- `phone-bridge-android/`: Android companion skeleton (Connect IQ Mobile SDK + TCP relay)
-- `docs/phone-bridge.md`: architecture, wire formats, provisioning, relay mitigation (RTT bound, RSSI factor, BLE Channel Sounding/UWB)
+- `iq-phone-bridge/`: uncompiled Connect IQ watch-app prototype for the FR235; SDK calls and crypto API are not hardware-validated
+- `phone-bridge-android/`: incomplete Android companion skeleton; TCP framing is present but Connect IQ SDK relay callbacks remain unimplemented and fail closed
+- `docs/phone-bridge.md`: architecture, wire formats, key-provisioning risks, and limitations of RTT/RSSI versus hardware distance bounding
 - `src/crypto.rs`: ChaCha20-Poly1305 AEAD wrapper, `/dev/urandom` nonces, hex key files with permission checks (validated against the RFC 8439 test vector)
 - `src/heartbeat.rs`: heartbeat message seal/open with replay, freshness and challenge-binding checks
 - `src/att.rs`: minimal ATT PDU codec (MTU exchange, write command, notifications, error responses)

@@ -70,7 +70,7 @@ pub fn usage(prog: &str) -> String {
          \x20 --challenge-timeout-ms MS  wait for the heartbeat reply per poll (default 2000)\n\
          \x20 --challenge-handle H    ATT handle of the challenge characteristic (default 0x0031)\n\
          \x20 --heartbeat-handle H    ATT handle of the heartbeat characteristic (default 0x0034)\n\
-         \x20 --max-roundtrip-ms MS   reject heartbeats whose challenge round-trip exceeds MS (relay bound, default 250; 0 disables)\n\
+         \x20 --max-roundtrip-ms MS   reject slow challenge responses (latency limit, not distance proof; default 250; 0 disables)\n\
          \x20 --bridge-addr HOST:PORT  use the phone-bridge TCP transport instead of direct BLE (requires --key-file)\n"
     )
 }

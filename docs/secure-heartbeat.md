@@ -100,12 +100,12 @@ central-role only, and it exists only on Connect IQ 3.1+ devices (Forerunner
 watch app on the FR235 cannot be the GATT server that this PC-side client
 expects. Practical options for the FR235:
 
-1. **Phone bridge** (works today): a Connect IQ app on the FR235 uses
-   `Toybox.Communications` to send an authenticated heartbeat to a phone
-   companion (Garmin Connect Mobile), which relays it to the PC over the local
-   network (TLS). The crypto/heartbeat modules in this repo
-   (`crypto.rs`, `heartbeat.rs`, `session.rs`) are transport-agnostic and can
-   be reused verbatim over that channel.
+1. **Phone bridge** (prototype, not currently operational): the intended design
+   is for a Connect IQ app on the FR235 to send an authenticated heartbeat to a
+   phone companion, which relays it to the PC. The checked-in Android app does
+   not yet implement Connect IQ SDK callbacks and the watch app has not been
+   compiled or tested against the FR235 SDK. Do not treat this as available
+   until both sides are completed and validated on hardware.
 2. **ANT+ channel**: the FR235 supports ANT+; a CIQ app can broadcast a heartbeat
    payload on an ANT channel to an ANT+ USB stick on the Linux PC. Same crypto,
    different transport.
@@ -115,10 +115,11 @@ expects. Practical options for the FR235:
 4. Any BLE peripheral that runs the reference responder (e.g. an nRF52/ESP32
    bridge paired to the watch) also works with the PC-side code as-is.
 
-For any of these, the guarantee is identical: **unlock requires a fresh
-ChaCha20-Poly1305-authenticated heartbeat under the pre-shared key plus
-proximity**, so a Flipper Zero replaying or spoofing advertisements cannot
-unlock the session.
+For a compatible, tested responder, unlock requires a fresh authenticated
+heartbeat under the pre-shared key. This prevents a device without the key
+from forging a valid response, but the heartbeat alone does not prove physical
+proximity and does not prevent a sufficiently fast relay. Proximity requires a
+separate, appropriately validated ranging mechanism.
 
 ## Linux PC notes
 
@@ -129,23 +130,23 @@ unlock the session.
   `CapabilityBoundingSet=CAP_NET_ADMIN` instead of running as full root.
 * The key file must be mode `0600` (enforced at load time).
 
-## Relay-attack mitigation (implemented)
+## Relay attacks and proximity limits
 
-* **RTT bound**: the heartbeat must echo the fresh per-poll challenge, so the
-  PC can measure the challenge→heartbeat round trip and reject anything slower
-  than `--max-roundtrip-ms` (default 250 ms, 0 disables; verbose mode prints
-  the measured RTT). A relay adds its backhaul hop latency and is rejected as
-  `TooSlow`. In `--bridge-addr` mode there is no RSSI, so this bound *is* the
-  distance bound. Calibrate with `--once --dry-run --verbose`.
-* **RSSI second factor** (direct BLE): unlock also needs distance below
-  `--max-distance-cm`. A relay attacker near the PC reads strong RSSI, so RSSI
-  defeats non-relay spoofing, not relays — the crypto tag + RTT bound do that.
-* **Hardware distance bounding** (strongest): BLE Channel Sounding (BT 6.0
-  phase-based ranging) or UWB (DW3000/FiRa) between PC and watch — requires
-  capable radios on both ends (not on the FR235). Enforce a physical distance
-  ceiling on top of the crypto heartbeat when available.
-* BLE link-layer encryption (LE Secure Connections pairing) recommended as
-  defense-in-depth.
+`--max-roundtrip-ms` (default 250 ms; `0` disables) is an application-level
+latency limit. It rejects responses arriving after the threshold, but it is
+not a physical distance bound: a relay that completes within the threshold can
+still pass, and a slow legitimate path can be rejected. In bridge mode, an
+accepted heartbeat proves key possession and challenge freshness, not that
+the watch is nearby. The local TCP bridge also has no transport authentication
+or encryption; keep it on loopback/trusted links. An intermediary can at least
+drop or delay frames and cause denial of service.
+
+In direct BLE mode, RSSI is an additional noisy signal, not cryptographic
+distance bounding. A relay close to the PC can produce strong RSSI. Stronger
+relay resistance needs suitable physical-layer distance-bounding hardware (for
+example UWB or supported BLE Channel Sounding) and end-to-end validation.
+BLE link-layer encryption is useful defense-in-depth but does not by itself
+prove proximity.
 
 ## Residual risks
 
@@ -158,11 +159,14 @@ unlock the session.
 * The heartbeat carries no secrets, so the AEAD/HMAC tag is what defeats
   spoofing even on an unencrypted link.
 
-## Phone bridge
+## Phone bridge prototype
 
-Devices that cannot host a GATT server (e.g. Forerunner 235 — Connect IQ BLE
-is central-only there) use `--bridge-addr HOST:PORT`: the PC talks TCP to a
-phone companion, which relays to the watch IQ app over `Toybox.Communications`.
-The bridge heartbeat uses mode 1 (AES-256-CBC + HMAC-SHA256 encrypt-then-MAC,
-81 bytes) because Monkey C has AES/SHA-256 but no AEAD. See
-[phone-bridge.md](phone-bridge.md) and `iq-phone-bridge/`.
+Devices that cannot host a GATT server (e.g. Forerunner 235) are intended to
+use `--bridge-addr HOST:PORT`, with a phone relaying TCP frames to a watch IQ
+app over `Toybox.Communications`. The checked-in Android app does not yet
+implement the Connect IQ relay and fails closed; the watch app is also
+uncompiled and untested. The bridge heartbeat format uses mode 1
+(AES-256-CBC + HMAC-SHA256 encrypt-then-MAC, 81 bytes) because Monkey C's
+available crypto API has not been validated here. See
+[phone-bridge.md](phone-bridge.md) for status and wire format. Do not use this
+prototype as an operational security control until it is completed and tested.

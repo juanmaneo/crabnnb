@@ -22,7 +22,7 @@ impl std::fmt::Display for ProbeError {
             ProbeError::Verify(e) => write!(f, "heartbeat verification failed: {e}"),
             ProbeError::TooSlow(rtt) => write!(
                 f,
-                "challenge round-trip {rtt:?} exceeds the configured bound (relay suspected)"
+                "challenge round-trip {rtt:?} exceeds the configured latency limit"
             ),
         }
     }
@@ -79,7 +79,7 @@ impl SecureSession {
         let rtt = t0.elapsed();
         let now_ms = SystemTime::now()
             .duration_since(UNIX_EPOCH)
-            .map_err(|e| ProbeError::Io(io::Error::other(e)))?
+            .map_err(|e| ProbeError::Io(io::Error::new(io::ErrorKind::Other, e)))?
             .as_millis() as u64;
         let hb = heartbeat::open_heartbeat(
             &self.key,
@@ -95,10 +95,7 @@ impl SecureSession {
             return Err(ProbeError::TooSlow(rtt));
         }
         self.last_counter = hb.counter;
-        Ok(ProbeOk {
-            heartbeat: hb,
-            rtt,
-        })
+        Ok(ProbeOk { heartbeat: hb, rtt })
     }
 }
 
