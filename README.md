@@ -1,5 +1,7 @@
 # CRABNNB - Crab's Remote Access Bluetooth Nearby Notification Blocker
 
+[![CI](https://github.com/juanmaneo/crabnnb/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/juanmaneo/crabnnb/actions/workflows/ci.yml)
+
 CRABNNB is a pure Rust port of the original Python [bluetooth-near.py](https://github.com/juanmaneo/BNNB) script.
 
 The name CRABNNB is a doubly recursive acronym:
