@@ -12,14 +12,23 @@ back the same way.
 
 ## Build
 
-1. Install the Connect IQ SDK + Monkey C VS Code extension.
-2. Open this folder, build for `forerunner235`, sideload the `.prg` onto the
-   watch (`GARMIN/APPS/`).
-3. Set the **pairing key** in Garmin Connect (app settings) to the same 64 hex
-   chars as the PC key file (`crabnnb --gen-key-file /etc/crabnnb/key.hex`).
-   Note: app settings set via Garmin Connect transit Garmin's cloud once —
-   acceptable for most threat models; for stricter provisioning, bake the key
-   into `resources/properties.xml` and sideload.
+Install the Connect IQ SDK and configure its `monkeyc` compiler. The included
+`monkey.jungle` defines the app's source, resources, and manifest. From this
+directory, compile for the Forerunner 235 with your developer key:
+
+```sh
+mkdir -p build
+monkeyc -f monkey.jungle -o build/PhoneBridge.prg -d fr235 -y /path/to/developer_key.der
+```
+
+Sideload the resulting `.prg` onto the watch (`GARMIN/APPS/`). No Connect IQ
+compiler or FR235 hardware test has been run for this project yet.
+
+Set the **pairing key** in Garmin Connect (app settings) to the same 64 hex
+characters as the PC key file (`crabnnb --gen-key-file /etc/crabnnb/key.hex`).
+Note: app settings set via Garmin Connect transit Garmin's cloud once —
+acceptable for most threat models; for stricter provisioning, bake the key
+into `resources/properties.xml` and sideload.
 
 ## Protocol (must match crabnnb `src/heartbeat.rs`, MODE_AES_CBC_HMAC)
 

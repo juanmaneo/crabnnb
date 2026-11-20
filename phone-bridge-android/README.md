@@ -1,23 +1,33 @@
 # Phone bridge companion (Android skeleton)
 
-Relays crabnnb challenge/response between the PC (TCP) and the watch IQ app
-(Connect IQ Mobile SDK over Garmin Connect). Build with the Garmin Connect IQ
-Mobile SDK (`com.garmin.connectiq:connectiq-mobile-sdk`); the exact SDK
-entry points are marked with TODO and must be matched to the installed SDK:
+This is a Gradle Android application skeleton for relaying crabnnb challenges
+between the PC (TCP) and the watch IQ app (Garmin Connect). It currently binds
+the TCP listener to `127.0.0.1:8765`, suitable for local use with `adb forward`.
 
-- `ConnectIQ.getInstance(context).registerForApplicationMessages(iqAppId, listener)`
-  to receive heartbeats from `crabnnb-phone-bridge`
-- `sendMessage(iqAppId, ByteArray)` to forward the PC's 16-byte challenge
-- a TCP server on port 8765 (or `adb forward tcp:8765 tcp:8765` to this app)
-  speaking the crabnnb bridge framing: `u32le length ‖ payload`
+## Build
 
-See `src/main/java/com/example/crabnnbbridge/MainActivity.kt` for the loop.
+Requirements: JDK 17, Gradle 8.9, and Android SDK Platform 35.
 
-Security/status notes: this is not a functional companion yet. The Connect IQ
-Mobile SDK callbacks are not implemented; requests fail closed instead of
-returning a placeholder heartbeat. The TCP listener binds only to
-`127.0.0.1` for use with `adb forward`, and the framing itself is not
-transport-authenticated or encrypted. Do not expose it on a LAN. A local
-intermediary can drop/delay frames (denial of service); heartbeat verification
-prevents forging a valid response without the shared key. The RTT setting is a
-latency limit, not a physical distance bound.
+```sh
+gradle -p phone-bridge-android assembleDebug
+```
+
+The output APK is under
+`phone-bridge-android/build/outputs/apk/debug/`.
+
+The Android app has an explicit `ConnectIqRelay` adapter boundary. The
+`ConnectIqMobileSdkStub` currently throws an error for every request, so the
+app fails closed and does not return a fabricated heartbeat. The Garmin SDK
+artifact and callbacks are intentionally not guessed: install the official
+Connect IQ Mobile SDK and replace the stub with an implementation matching the
+installed SDK's API before expecting a working relay. The PC protocol uses
+`u32le length ‖ payload` framing, with 16-byte challenges and 81-byte
+heartbeat responses.
+
+## Security/status notes
+
+This is not a functional companion yet. The local TCP framing is not
+transport-authenticated or encrypted. Do not expose the listener on a LAN. A
+local intermediary can drop/delay frames (denial of service); heartbeat
+verification prevents forging a valid response without the shared key. The
+RTT setting is a latency limit, not a physical distance bound.

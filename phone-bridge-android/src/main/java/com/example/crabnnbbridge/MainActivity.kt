@@ -13,7 +13,7 @@ import java.net.Socket
 import kotlin.concurrent.thread
 
 // TCP framing is u32 little-endian length followed by payload, matching src/bridge.rs.
-// This remains non-functional until the Connect IQ Mobile SDK callbacks are wired.
+// The relay adapter remains fail-closed until the Connect IQ Mobile SDK is wired.
 class MainActivity : AppCompatActivity() {
 
     companion object {
@@ -25,6 +25,8 @@ class MainActivity : AppCompatActivity() {
 
     @Volatile
     private var server: ServerSocket? = null
+
+    private val connectIqRelay: ConnectIqRelay = ConnectIqMobileSdkStub()
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -83,11 +85,8 @@ class MainActivity : AppCompatActivity() {
         output.flush()
     }
 
-    private fun sendChallengeAndAwaitHeartbeat(challenge: ByteArray): ByteArray {
-        // TODO: forward through Connect IQ and await the matching watch response.
-        // Until this is implemented, fail closed instead of returning a fake frame.
-        throw IOException("Connect IQ Mobile SDK relay is not implemented")
-    }
+    private fun sendChallengeAndAwaitHeartbeat(challenge: ByteArray): ByteArray =
+        connectIqRelay.sendChallengeAndAwaitHeartbeat(IQ_APP_ID, challenge)
 
     private fun handle(client: Socket) {
         client.use { socket ->
