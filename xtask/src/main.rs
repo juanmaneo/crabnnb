@@ -285,18 +285,22 @@ mod tests {
         Ok(())
     }
 
+    // `io::Error::other` is only available from Rust 1.74, above the
+    // workspace MSRV, so construct `ErrorKind::Other` the long way.
+    #[allow(clippy::io_other_error)]
+    fn other_error(message: &str) -> io::Error {
+        io::Error::new(io::ErrorKind::Other, message)
+    }
+
     fn fail_remove(_path: &Path) -> io::Result<()> {
-        Err(io::Error::new(
-            io::ErrorKind::Other,
-            "injected remove error",
-        ))
+        Err(other_error("injected remove error"))
     }
 
     struct FailingWriter;
 
     impl Write for FailingWriter {
         fn write(&mut self, _buffer: &[u8]) -> io::Result<usize> {
-            Err(io::Error::new(io::ErrorKind::Other, "write failed"))
+            Err(other_error("write failed"))
         }
 
         fn flush(&mut self) -> io::Result<()> {
@@ -373,10 +377,7 @@ mod tests {
     #[test]
     fn clean_leftover_reports_directory_entry_errors() {
         let temp = TempDir::new();
-        let entries = vec![Err(io::Error::new(
-            io::ErrorKind::Other,
-            "injected read error",
-        ))];
+        let entries = vec![Err(other_error("injected read error"))];
 
         let error = clean_leftover_entries_at(&temp.0, entries, remove_path).unwrap_err();
 
@@ -390,10 +391,7 @@ mod tests {
         let entry = LeftoverEntry {
             path,
             name: std::ffi::OsString::from("crabnnb-132037"),
-            file_type: Err(io::Error::new(
-                io::ErrorKind::Other,
-                "injected metadata error",
-            )),
+            file_type: Err(other_error("injected metadata error")),
         };
 
         let error = clean_leftover_entries_at(&temp.0, vec![Ok(entry)], remove_path).unwrap_err();

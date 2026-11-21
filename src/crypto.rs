@@ -234,8 +234,8 @@ mod tests {
 
     fn rfc8439_key() -> [u8; KEY_LEN] {
         let mut k = [0u8; KEY_LEN];
-        for i in 0..KEY_LEN {
-            k[i] = 0x80 + i as u8;
+        for (i, byte) in k.iter_mut().enumerate() {
+            *byte = 0x80 + i as u8;
         }
         k
     }

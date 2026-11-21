@@ -34,7 +34,7 @@ pub struct RunArgs {
 #[derive(Debug, PartialEq)]
 pub enum Parsed {
     Help,
-    Run(RunArgs),
+    Run(Box<RunArgs>),
     GenKey(PathBuf),
 }
 
@@ -232,7 +232,7 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
         i += 1;
     }
     r.validate()?;
-    Ok(Parsed::Run(r))
+    Ok(Parsed::Run(Box::new(r)))
 }
 
 #[cfg(test)]
@@ -265,7 +265,7 @@ mod tests {
         let mac = Mac::parse("AA:BB:CC:DD:EE:FF").unwrap();
         assert_eq!(
             parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap(),
-            Parsed::Run(defaults(mac))
+            Parsed::Run(Box::new(defaults(mac)))
         );
     }
 
@@ -315,7 +315,7 @@ mod tests {
         expected.dry_run = true;
         expected.once = true;
         expected.verbose = false;
-        assert_eq!(parsed, Parsed::Run(expected));
+        assert_eq!(parsed, Parsed::Run(Box::new(expected)));
     }
 
     #[test]
@@ -367,7 +367,7 @@ mod tests {
         let mac = Mac::parse("AA:BB:CC:DD:EE:FF").unwrap();
         assert_eq!(
             parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap(),
-            Parsed::Run(defaults(mac))
+            Parsed::Run(Box::new(defaults(mac)))
         );
     }
 
@@ -393,7 +393,7 @@ mod tests {
         expected.challenge_timeout = Duration::from_millis(1500);
         expected.challenge_handle = 0x2a;
         expected.heartbeat_handle = 45;
-        assert_eq!(parsed, Parsed::Run(expected));
+        assert_eq!(parsed, Parsed::Run(Box::new(expected)));
     }
 
     #[test]
@@ -402,7 +402,7 @@ mod tests {
         expected.allow_insecure = true;
         assert_eq!(
             parse(&args(&["AA:BB:CC:DD:EE:FF", "--allow-insecure"])).unwrap(),
-            Parsed::Run(expected)
+            Parsed::Run(Box::new(expected))
         );
     }
 
@@ -455,7 +455,7 @@ mod tests {
         expected.challenge_handle = 0x2a;
         assert_eq!(
             parse(&args(&["AA:BB:CC:DD:EE:FF", "--challenge-handle", "0X2A"])).unwrap(),
-            Parsed::Run(expected)
+            Parsed::Run(Box::new(expected))
         );
     }
 
@@ -483,6 +483,6 @@ mod tests {
         let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
         expected.bridge_addr = Some("127.0.0.1:8765".to_string());
         expected.max_roundtrip = Duration::from_millis(300);
-        assert_eq!(parsed, Parsed::Run(expected));
+        assert_eq!(parsed, Parsed::Run(Box::new(expected)));
     }
 }

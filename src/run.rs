@@ -14,6 +14,15 @@ use crate::session::SecureSession;
 use crate::sys::Sys;
 use crate::transport::HciTransport;
 
+/// Bundled I/O context for [`run`] and [`run_bridge`] so neither function
+/// exceeds clippy's argument limit.
+pub struct RunIo<'a> {
+    pub runner: &'a mut dyn CmdRunner,
+    pub clock: &'a mut dyn Clock,
+    pub out: &'a mut dyn Write,
+    pub err: &'a mut dyn Write,
+}
+
 fn run_bridge(
     device: &mut dyn BtOps,
     key: [u8; crypto::KEY_LEN],
@@ -21,15 +30,12 @@ fn run_bridge(
     cfg: &RunConfig,
     heartbeat_window: Duration,
     max_roundtrip: Duration,
-    runner: &mut dyn CmdRunner,
-    clock: &mut dyn Clock,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
+    io: RunIo<'_>,
 ) -> i32 {
     let local = match device.local_mac() {
         Ok(local) => local,
         Err(e) => {
-            let _ = writeln!(err, "ERROR: cannot derive bridge identity: {e}");
+            let _ = writeln!(io.err, "ERROR: cannot derive bridge identity: {e}");
             return 2;
         }
     };
@@ -40,16 +46,7 @@ fn run_bridge(
         heartbeat_window,
         max_roundtrip,
     ));
-    run(
-        device,
-        &watch,
-        cfg,
-        session.as_mut(),
-        runner,
-        clock,
-        out,
-        err,
-    )
+    run(device, &watch, cfg, session.as_mut(), io)
 }
 
 pub struct RunConfig {
@@ -69,32 +66,29 @@ pub fn run(
     mac: &Mac,
     cfg: &RunConfig,
     mut session: Option<&mut SecureSession>,
-    runner: &mut dyn CmdRunner,
-    clock: &mut dyn Clock,
-    out: &mut dyn Write,
-    err: &mut dyn Write,
+    io: RunIo<'_>,
 ) -> i32 {
     let found = match bt.discover() {
         Ok(n) => n,
         Err(e) => {
-            let _ = writeln!(err, "ERROR: bluetooth discovery failed: {e}");
+            let _ = writeln!(io.err, "ERROR: bluetooth discovery failed: {e}");
             return 2;
         }
     };
     if cfg.verbose {
-        let _ = writeln!(out, "found {found} devices");
+        let _ = writeln!(io.out, "found {found} devices");
     }
     match bt.lookup_name(mac) {
         Err(e) => {
-            let _ = writeln!(err, "ERROR: name lookup failed: {e}");
+            let _ = writeln!(io.err, "ERROR: name lookup failed: {e}");
             return 3;
         }
         Ok(None) => {
-            let _ = writeln!(err, "ERROR: Your bluetooth device is not active");
+            let _ = writeln!(io.err, "ERROR: Your bluetooth device is not active");
             return 3;
         }
         Ok(Some(name)) => {
-            let _ = writeln!(out, "OK: Found your device {name}");
+            let _ = writeln!(io.out, "OK: Found your device {name}");
         }
     }
     let mut monitor = Monitor::new(cfg.max_missed, cfg.max_distance_cm);
@@ -110,7 +104,7 @@ pub fn run(
                     Ok(ok) => {
                         if cfg.verbose {
                             let _ = writeln!(
-                                out,
+                                io.out,
                                 "verified heartbeat counter={} ts_ms={} rtt={:?}",
                                 ok.heartbeat.counter, ok.heartbeat.timestamp_ms, ok.rtt
                             );
@@ -119,7 +113,7 @@ pub fn run(
                     }
                     Err(e) => {
                         if cfg.verbose {
-                            let _ = writeln!(out, "DEVICE UNVERIFIED: {e}");
+                            let _ = writeln!(io.out, "DEVICE UNVERIFIED: {e}");
                         }
                         Sample::Unverified
                     }
@@ -131,13 +125,13 @@ pub fn run(
         if cfg.verbose {
             match &sample {
                 Sample::Distance(d) => {
-                    let _ = writeln!(out, "Approximate distance: {:.1} cm", d * 100.0);
+                    let _ = writeln!(io.out, "Approximate distance: {:.1} cm", d * 100.0);
                 }
                 Sample::Away => {
-                    let _ = writeln!(out, "DEVICE AWAY");
+                    let _ = writeln!(io.out, "DEVICE AWAY");
                 }
                 Sample::Unverified => {
-                    let _ = writeln!(out, "DEVICE UNVERIFIED (no valid encrypted heartbeat)");
+                    let _ = writeln!(io.out, "DEVICE UNVERIFIED (no valid encrypted heartbeat)");
                 }
             }
         }
@@ -146,15 +140,15 @@ pub fn run(
                 Action::Lock => (&cfg.lock_cmd, "lock"),
                 Action::Unlock => (&cfg.unlock_cmd, "unlock"),
             };
-            let _ = writeln!(out, "running {label} command");
-            if let Err(e) = runner.run(cmd) {
-                let _ = writeln!(err, "ERROR: command failed: {e}");
+            let _ = writeln!(io.out, "running {label} command");
+            if let Err(e) = io.runner.run(cmd) {
+                let _ = writeln!(io.err, "ERROR: command failed: {e}");
             }
         }
         if cfg.once {
             break;
         }
-        clock.sleep(cfg.scan_period);
+        io.clock.sleep(cfg.scan_period);
     }
     0
 }
@@ -187,7 +181,7 @@ pub fn run_cli<S: Sys>(
                 }
             };
         }
-        Ok(Parsed::Run(r)) => r,
+        Ok(Parsed::Run(r)) => *r,
         Err(msg) => {
             let _ = writeln!(err, "error: {msg}\n\n{}", cli::usage(prog));
             return 1;
@@ -251,10 +245,12 @@ pub fn run_cli<S: Sys>(
             &cfg,
             parsed.heartbeat_window,
             parsed.max_roundtrip,
-            runner,
-            &mut clock,
-            out,
-            err,
+            RunIo {
+                runner,
+                clock: &mut clock,
+                out,
+                err,
+            },
         );
     }
     let transport = match HciTransport::open(sys) {
@@ -306,10 +302,12 @@ pub fn run_cli<S: Sys>(
         &mac,
         &cfg,
         session.as_mut(),
-        runner,
-        &mut clock,
-        out,
-        err,
+        RunIo {
+            runner,
+            clock: &mut clock,
+            out,
+            err,
+        },
     )
 }
 
@@ -490,10 +488,12 @@ mod tests {
                 &test_cfg(),
                 Duration::from_secs(5),
                 Duration::from_millis(250),
-                &mut runner,
-                &mut clock,
-                &mut out,
-                &mut err,
+                RunIo {
+                    runner: &mut runner,
+                    clock: &mut clock,
+                    out: &mut out,
+                    err: &mut err,
+                },
             ),
             2
         );
@@ -520,10 +520,12 @@ mod tests {
             &fx.watch,
             cfg,
             fx.session.as_mut(),
-            runner,
-            &mut clock,
-            out,
-            err,
+            RunIo {
+                runner,
+                clock: &mut clock,
+                out,
+                err,
+            },
         )
     }
 
@@ -842,10 +844,12 @@ mod tests {
             &watch,
             &cfg,
             session.as_mut(),
-            &mut runner,
-            &mut clock,
-            &mut out,
-            &mut err,
+            RunIo {
+                runner: &mut runner,
+                clock: &mut clock,
+                out: &mut out,
+                err: &mut err,
+            },
         );
         assert_eq!(code, 0);
         assert_eq!(
@@ -886,10 +890,12 @@ mod tests {
             &watch,
             &cfg,
             session.as_mut(),
-            &mut runner,
-            &mut clock,
-            &mut out,
-            &mut err,
+            RunIo {
+                runner: &mut runner,
+                clock: &mut clock,
+                out: &mut out,
+                err: &mut err,
+            },
         );
         assert_eq!(code, 0);
         assert!(runner.executed.borrow().is_empty());
@@ -1391,10 +1397,12 @@ mod tests {
             &fx.watch,
             &cfg,
             fx.session.as_mut(),
-            &mut runner,
-            &mut clock,
-            &mut out,
-            &mut err,
+            RunIo {
+                runner: &mut runner,
+                clock: &mut clock,
+                out: &mut out,
+                err: &mut err,
+            },
         );
         assert_eq!(code, 3);
         assert!(runner.executed.borrow().is_empty());
