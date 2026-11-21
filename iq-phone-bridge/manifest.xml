@@ -10,6 +10,6 @@
         <iq:languages>
             <iq:language>eng</iq:language>
         </iq:languages>
-        <iq:minSdkVersion>3.0.0</iq:minSdkVersion>
+        <iq:minSdkVersion>1.4.0</iq:minSdkVersion>
     </iq:application>
 </iq:manifest>
