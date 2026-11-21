@@ -100,12 +100,12 @@ central-role only, and it exists only on Connect IQ 3.1+ devices (Forerunner
 watch app on the FR235 cannot be the GATT server that this PC-side client
 expects. Practical options for the FR235:
 
-1. **Phone bridge** (prototype, not currently operational): the intended design
-   is for a Connect IQ app on the FR235 to send an authenticated heartbeat to a
-   phone companion, which relays it to the PC. The checked-in Android app does
-   not yet implement Connect IQ SDK callbacks and the watch app has not been
-   compiled or tested against the FR235 SDK. Do not treat this as available
-   until both sides are completed and validated on hardware.
+1. **Phone bridge** (implemented, not yet hardware-validated): the Connect IQ
+   Mobile SDK Android companion now relays challenges and accepts only a
+   successful 81-byte response from the matching app and connected watch. Its JVM
+   tests cover callback and failure behavior, but not Garmin BLE. The watch app
+   has not been compiled or tested against the FR235 SDK; do not treat the bridge
+   as operational until both sides are built and validated on hardware.
 2. **ANT+ channel**: the FR235 supports ANT+; a CIQ app can broadcast a heartbeat
    payload on an ANT channel to an ANT+ USB stick on the Linux PC. Same crypto,
    different transport.

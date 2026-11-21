@@ -15,9 +15,11 @@ crabnnb (Linux PC)  --TCP-->  phone companion (Android/iOS)  --Garmin Connect / 
   TCP server locally, e.g. via `adb forward tcp:8765 tcp:8765`).
 - Bridge framing on TCP: `u32le length ‖ payload`. PC→phone payload = 16-byte
   random challenge; phone→PC payload = 81-byte heartbeat (mode 1, below).
-- Phone companion: `phone-bridge-android/` is an incomplete skeleton. Its local
-  TCP framing is specified, but the Connect IQ Mobile SDK callbacks are not
-  implemented; it cannot currently relay a challenge or return a heartbeat.
+- Phone companion: `phone-bridge-android/` implements the local TCP server and
+  a Connect IQ Mobile SDK 2.4.0 relay. It fails closed unless the SDK initializes,
+  exactly one watch is connected, the challenge send succeeds, and the matching
+  app returns a valid 81-byte heartbeat. This implementation is not yet validated
+  against Garmin Connect Mobile or physical FR235 hardware.
 - Watch app: `iq-phone-bridge/` is an unverified prototype. Its Monkey C SDK
   calls and crypto APIs have not been compiled or tested on an FR235.
 
@@ -70,12 +72,13 @@ RTT timeout against a local TCP mock. That mock only checks that a response
 slower than the configured policy is rejected; it does not demonstrate relay
 resistance or physical distance bounding.
 
-The Android companion is not a working relay yet: it has no Gradle project or
-Connect IQ Mobile SDK integration, and its relay callback is deliberately
-fail-closed. The TCP listener binds to `127.0.0.1` only and the transport has no
-authentication/encryption; do not expose it on a LAN. A local intermediary can
-cause denial of service, though it cannot forge a valid heartbeat without the
-key. The Connect IQ app is also uncompiled and untested; its SDK calls and
-crypto API usage need validation against the installed SDK and FR235. Do not
-deploy the phone bridge as an operational security feature until both apps are
-completed and tested end-to-end on hardware.
+The Android companion now has a Gradle project and a Connect IQ Mobile SDK
+2.4.0 relay implementation, including bounded waits and fail-closed validation.
+The Android unit tests and APK build pass, but real Garmin interaction remains
+unverified. The TCP listener
+binds to `127.0.0.1` only and the transport has no authentication/encryption; do
+not expose it on a LAN. A local intermediary can cause denial of service, though
+it cannot forge a valid heartbeat without the key. The Connect IQ app is also
+uncompiled and untested; its SDK calls and crypto API usage need validation
+against the installed SDK and FR235. Do not deploy the phone bridge as an
+operational security feature until both apps are validated end-to-end on hardware.

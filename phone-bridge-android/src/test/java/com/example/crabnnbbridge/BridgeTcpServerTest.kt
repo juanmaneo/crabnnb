@@ -2,7 +2,6 @@ package com.example.crabnnbbridge
 
 import java.io.DataInputStream
 import java.io.DataOutputStream
-import java.io.EOFException
 import java.io.IOException
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
@@ -50,17 +49,20 @@ class BridgeTcpServerTest {
     }
 
     @Test
-    fun stubRelayClosesClientWithoutFabricatingAHeartbeat() {
-        val server = startServer(ConnectIqMobileSdkStub())
+    fun unavailableWatchClosesClientWithoutFabricatingAHeartbeat() {
+        val relay = ConnectIqMobileSdkRelay(noDevicesSdk(), timeoutMs = 500)
+        relay.start()
+        val server = startServer(relay)
 
         try {
             Socket("127.0.0.1", server.port).use { socket ->
                 socket.soTimeout = 2_000
                 writeFrame(DataOutputStream(socket.getOutputStream()), ByteArray(BridgeProtocol.CHALLENGE_SIZE))
-                assertTrue(DataInputStream(socket.getInputStream()).read() == -1)
+                assertEquals(-1, DataInputStream(socket.getInputStream()).read())
             }
         } finally {
             server.stop()
+            relay.close()
         }
     }
 
@@ -129,6 +131,24 @@ class BridgeTcpServerTest {
         } finally {
             server.stop()
         }
+    }
+
+    private fun noDevicesSdk() = object : ConnectIqSdk {
+        override fun initialize(onReady: (IOException?) -> Unit) = onReady(null)
+        override fun connectedDevices() = emptyList<ConnectIqDevice>()
+        override fun registerForAppEvents(
+            device: ConnectIqDevice,
+            iqAppId: String,
+            onMessage: (String, Long, Boolean, List<Any?>) -> Unit,
+        ) = error("must not register without a connected watch")
+        override fun sendMessage(
+            device: ConnectIqDevice,
+            iqAppId: String,
+            message: ByteArray,
+            onStatus: (String, Long, Boolean) -> Unit,
+        ) = error("must not send without a connected watch")
+        override fun unregisterForAppEvents(device: ConnectIqDevice, iqAppId: String) = Unit
+        override fun shutdown() = Unit
     }
 
     private fun startServer(

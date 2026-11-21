@@ -10,11 +10,15 @@ class MainActivity : AppCompatActivity() {
     }
 
     private var bridgeServer: BridgeTcpServer? = null
+    private var connectIqRelay: ConnectIqMobileSdkRelay? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        val relay = ConnectIqMobileSdkRelay(applicationContext)
+        connectIqRelay = relay
+        relay.start()
         val server = BridgeTcpServer(
-            relay = ConnectIqMobileSdkStub(),
+            relay = relay,
             port = PORT,
             onListenerError = { error ->
                 if (!isFinishing) {
@@ -32,6 +36,8 @@ class MainActivity : AppCompatActivity() {
     override fun onDestroy() {
         bridgeServer?.close()
         bridgeServer = null
+        connectIqRelay?.close()
+        connectIqRelay = null
         super.onDestroy()
     }
 }

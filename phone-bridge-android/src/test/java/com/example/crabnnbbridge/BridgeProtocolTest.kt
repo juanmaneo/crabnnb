@@ -71,16 +71,6 @@ class BridgeProtocolTest {
         assertEquals(0, output.size())
     }
 
-    @Test
-    fun sdkStubFailsClosed() {
-        val error = assertThrows(IOException::class.java) {
-            ConnectIqMobileSdkStub().sendChallengeAndAwaitHeartbeat(
-                "test-app",
-                ByteArray(BridgeProtocol.CHALLENGE_SIZE),
-            )
-        }
-        assertEquals("Garmin Connect IQ Mobile SDK relay is not configured", error.message)
-    }
 
     private fun frame(payload: ByteArray): ByteArray = byteArrayOf(
         payload.size.toByte(),

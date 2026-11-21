@@ -33,7 +33,7 @@ This project requires Rust 1.70.0 or later.
 - **Encrypted, authenticated heartbeat (challenge-response) between watch and PC** — secure by default; MAC+RSSI alone is never enough to unlock
 - ChaCha20-Poly1305 (RFC 8439) AEAD with replay protection (monotonic counter), freshness window and challenge binding (direct BLE), or AES-256-CBC + HMAC-SHA256 encrypt-then-MAC (phone bridge)
 - Challenge round-trip latency limit (`--max-roundtrip-ms`); this is not physical distance bounding and does not stop every relay
-- Phone-bridge prototype (`--bridge-addr`) for watches that cannot host GATT; Android/Connect IQ integration is incomplete and untested
+- Phone-bridge prototype (`--bridge-addr`) for watches that cannot host GATT; Android Connect IQ relay is implemented but not yet validated on Garmin hardware
 - L2CAP/ATT (GATT client) channel with MTU exchange, plus RSSI and TX power reading
 - Log-distance path-loss model with polynomial accuracy curves
 - Sample averaging for stable distance measurements

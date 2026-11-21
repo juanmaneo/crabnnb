@@ -27,5 +27,8 @@ android {
 
 dependencies {
     implementation("androidx.appcompat:appcompat:1.7.0")
+    // Garmin Connect IQ Mobile SDK, published on Maven Central (not redistributable,
+    // so it is fetched from the repository instead of being vendored into git).
+    implementation("com.garmin.connectiq:ciq-companion-app-sdk:2.4.0")
     testImplementation("junit:junit:4.13.2")
 }
