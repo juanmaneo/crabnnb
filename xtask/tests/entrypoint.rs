@@ -25,6 +25,21 @@ impl Drop for TempDir {
 }
 
 #[test]
+fn iq_vectors_entrypoint_writes_generated_source() {
+    let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .arg("iq-vectors")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    assert!(stdout.contains(
+        "SHA256_EMPTY = \"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855\""
+    ));
+    assert!(stdout.contains("HEARTBEAT = \""));
+}
+
+#[test]
 fn clean_entrypoint_reports_missing_cargo_before_touching_profiles() {
     let empty_path = TempDir::new();
     let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
