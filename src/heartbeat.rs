@@ -221,6 +221,26 @@ mod tests {
     }
 
     #[test]
+    fn test_heartbeat_error_display() {
+        assert_eq!(
+            HeartbeatError::Malformed.to_string(),
+            "malformed heartbeat message"
+        );
+        assert!(HeartbeatError::InvalidTag
+            .to_string()
+            .contains("authentication tag mismatch"));
+        assert!(HeartbeatError::ChallengeMismatch
+            .to_string()
+            .contains("outstanding challenge"));
+        assert!(HeartbeatError::Replay
+            .to_string()
+            .contains("replayed heartbeat"));
+        assert!(HeartbeatError::Stale
+            .to_string()
+            .contains("freshness window"));
+    }
+
+    #[test]
     fn test_message_len() {
         assert_eq!(MESSAGE_LEN, 12 + 32 + 16);
     }
@@ -384,6 +404,66 @@ mod tests {
         )
         .unwrap();
         assert_eq!(hb.counter, 3);
+    }
+
+    #[test]
+    fn test_rejects_malformed_challenge_and_authenticated_bridge_payloads() {
+        let aad = aad(&watch(), &local());
+        let chal = challenge();
+        let nonce = nonce();
+        let mut v2 = seal_heartbeat_v2(&key(), &aad, 1, 1_000, &chal, &nonce);
+        let last = v2.len() - 1;
+        v2[last] ^= 1;
+        assert_eq!(
+            open_heartbeat(&key(), &aad, &v2, &chal, 0, 1_000, Duration::from_secs(5)).unwrap_err(),
+            HeartbeatError::InvalidTag
+        );
+        let valid = seal_heartbeat(&key(), &aad, 1, 1_000, &chal, &nonce);
+        assert_eq!(
+            open_heartbeat(&key(), &aad, &valid, &[], 0, 1_000, Duration::from_secs(5))
+                .unwrap_err(),
+            HeartbeatError::Malformed
+        );
+
+        let iv = [0x05u8; 16];
+        let mut bad_padding = seal_heartbeat_bridge(&key(), 1, 1, &chal, &iv);
+        bad_padding[17 + 15] ^= 1;
+        let tag_start = bad_padding.len() - 32;
+        let tag = crypto::hmac_sha256(&mac_key(&key()), &bad_padding[..tag_start]);
+        bad_padding[tag_start..].copy_from_slice(&tag);
+        assert_eq!(
+            open_heartbeat(
+                &key(),
+                &aad,
+                &bad_padding,
+                &chal,
+                0,
+                1_000,
+                Duration::from_secs(5)
+            )
+            .unwrap_err(),
+            HeartbeatError::InvalidTag
+        );
+
+        let mut short_plaintext = vec![MODE_AES_CBC_HMAC];
+        short_plaintext.extend_from_slice(&iv);
+        short_plaintext.extend_from_slice(&crypto::aes256_cbc_encrypt_raw(&key(), &iv, &[0; 16]));
+        let tag = crypto::hmac_sha256(&mac_key(&key()), &short_plaintext);
+        short_plaintext.extend_from_slice(&tag);
+        assert_eq!(short_plaintext.len(), BRIDGE_MESSAGE_LEN);
+        assert_eq!(
+            open_heartbeat(
+                &key(),
+                &aad,
+                &short_plaintext,
+                &chal,
+                0,
+                1_000,
+                Duration::from_secs(5)
+            )
+            .unwrap_err(),
+            HeartbeatError::Malformed
+        );
     }
 
     #[test]

@@ -33,6 +33,7 @@ class ConnectIqRelayTest {
         val heartbeat = heartbeat()
         val sdk = FakeConnectIqSdk(onSend = { sdk ->
             sdk.deliverReply(payload = listOf(heartbeat.copyOf()))
+            sdk.deliverReply(success = false, payload = emptyList())
             sdk.deliverSendStatus(true)
         })
 
@@ -242,6 +243,144 @@ class ConnectIqRelayTest {
     }
 
     @Test
+    fun rejectsBlankAppIdWithoutUsingSdk() {
+        val sdk = FakeConnectIqSdk()
+
+        assertThrows(IOException::class.java) {
+            relay(sdk).sendChallengeAndAwaitHeartbeat("  ", challenge())
+        }
+        assertTrue(sdk.sent.isEmpty())
+    }
+
+    @Test
+    fun startIsIdempotentAndCloseBeforeStartPreventsInitialization() {
+        val sdk = FakeConnectIqSdk()
+        val relay = ConnectIqMobileSdkRelay(sdk)
+        relay.start()
+        relay.start()
+        assertEquals(1, sdk.initializations.get())
+
+        val closedSdk = FakeConnectIqSdk()
+        val closedRelay = ConnectIqMobileSdkRelay(closedSdk)
+        closedRelay.close()
+        closedRelay.start()
+        assertEquals(0, closedSdk.initializations.get())
+    }
+
+    @Test
+    fun initializationRuntimeFailureIsReportedAsIoFailure() {
+        val sdk = FakeConnectIqSdk(initializeFailure = IllegalStateException("init blew up"))
+
+        assertThrows(IOException::class.java) {
+            relay(sdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge())
+        }
+        assertTrue(sdk.sent.isEmpty())
+    }
+
+    @Test
+    fun timesOutOrInterruptsWhileWaitingForSdkInitialization() {
+        val timeoutSdk = FakeConnectIqSdk(initializeWithoutCallback = true)
+        assertThrows(IOException::class.java) {
+            relay(timeoutSdk, timeoutMs = 20).sendChallengeAndAwaitHeartbeat(APP_ID, challenge())
+        }
+
+        val interruptedSdk = FakeConnectIqSdk(initializeWithoutCallback = true)
+        val relay = relay(interruptedSdk, timeoutMs = 10_000)
+        val failure = AtomicReference<Throwable?>()
+        val finished = CountDownLatch(1)
+        val worker = thread {
+            try {
+                relay.sendChallengeAndAwaitHeartbeat(APP_ID, challenge())
+            } catch (error: Throwable) {
+                failure.set(error)
+            } finally {
+                finished.countDown()
+            }
+        }
+        assertTrue(interruptedSdk.initializeEntered.await(1, TimeUnit.SECONDS))
+        worker.interrupt()
+        assertTrue(finished.await(1, TimeUnit.SECONDS))
+        assertTrue(failure.get() is IOException)
+        worker.join(1_000)
+    }
+
+    @Test
+    fun ignoresMismatchedCallbacksAndDuplicateReplies() {
+        val heartbeat = heartbeat()
+        val sdk = FakeConnectIqSdk(onSend = { fake ->
+            fake.deliverSendStatus(true, deviceId = WATCH_ID + 1)
+            fake.deliverSendStatus(true, appId = "another-app")
+            fake.deliverReply(payload = listOf(heartbeat), deviceId = WATCH_ID + 1)
+            fake.deliverReply(payload = listOf(heartbeat), appId = "another-app")
+            fake.deliverSendStatus(true)
+            fake.deliverReply(payload = listOf(heartbeat.copyOf()))
+            fake.deliverReply(success = false, payload = emptyList())
+            fake.deliverSendStatus(false)
+        })
+
+        assertArrayEquals(heartbeat, relay(sdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge()))
+    }
+
+    @Test
+    fun failedSdkDeviceLookupIsWrappedAndCleanupRuntimeFailureIsIgnored() {
+        val lookupSdk = FakeConnectIqSdk(deviceLookupFailure = IllegalStateException("lookup failed"))
+        assertThrows(IOException::class.java) {
+            relay(lookupSdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge())
+        }
+
+        val heartbeat = heartbeat()
+        val cleanupSdk = FakeConnectIqSdk(
+            onSend = { fake ->
+                fake.deliverSendStatus(true)
+                fake.deliverReply(payload = listOf(heartbeat.copyOf()))
+            },
+            unregisterRuntimeFailure = IllegalStateException("cleanup failed"),
+        )
+        assertArrayEquals(heartbeat, relay(cleanupSdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge()))
+    }
+
+    @Test
+    fun interruptingAnOutstandingReplyWaitFailsAndRestoresInterruptFlag() {
+        val sdk = FakeConnectIqSdk(onSend = { it.deliverSendStatus(true) })
+        val relay = relay(sdk, timeoutMs = 10_000)
+        val failure = AtomicReference<Throwable?>()
+        val interruptRestored = AtomicReference(false)
+        val finished = CountDownLatch(1)
+        val worker = thread {
+            try {
+                relay.sendChallengeAndAwaitHeartbeat(APP_ID, challenge())
+            } catch (error: Throwable) {
+                failure.set(error)
+                interruptRestored.set(Thread.currentThread().isInterrupted)
+            } finally {
+                finished.countDown()
+            }
+        }
+
+        assertTrue(sdk.sendEntered.await(1, TimeUnit.SECONDS))
+        worker.interrupt()
+        assertTrue(finished.await(1, TimeUnit.SECONDS))
+        assertTrue(failure.get() is IOException)
+        assertTrue(interruptRestored.get())
+        worker.join(1_000)
+    }
+
+    @Test
+    fun closingAfterCompletedExchangeDoesNotChangeResult() {
+        val heartbeat = heartbeat()
+        val sdk = FakeConnectIqSdk(onSend = { fake ->
+            fake.deliverSendStatus(true)
+            fake.deliverReply(payload = listOf(heartbeat.copyOf()))
+        })
+        val relay = relay(sdk)
+
+        assertArrayEquals(heartbeat, relay.sendChallengeAndAwaitHeartbeat(APP_ID, challenge()))
+        relay.close()
+        relay.close()
+        assertEquals(1, sdk.shutdowns.get())
+    }
+
+    @Test
     fun closedRelayRejectsChallenges() {
         val sdk = FakeConnectIqSdk()
         val relay = relay(sdk)
@@ -252,6 +391,43 @@ class ConnectIqRelayTest {
         }
         assertEquals(1, sdk.shutdowns.get())
         assertTrue(sdk.sent.isEmpty())
+    }
+
+    @Test
+    fun closeDuringDeviceLookupCancelsBeforeRegisteringOrSending() {
+        val relayRef = AtomicReference<ConnectIqMobileSdkRelay?>()
+        val sdk = FakeConnectIqSdk(onDeviceLookup = { relayRef.get()?.close() })
+        val relay = relay(sdk)
+        relayRef.set(relay)
+
+        assertThrows(IOException::class.java) {
+            relay.sendChallengeAndAwaitHeartbeat(APP_ID, challenge())
+        }
+        assertTrue(sdk.sent.isEmpty())
+        assertEquals(0, sdk.unregistered.get())
+        assertEquals(1, sdk.shutdowns.get())
+    }
+
+    @Test
+    fun closingAfterOutcomeCompletesDoesNotTurnSuccessIntoFailure() {
+        val heartbeat = heartbeat()
+        val relayRef = AtomicReference<ConnectIqMobileSdkRelay?>()
+        val sdk = FakeConnectIqSdk(onSend = { fake ->
+            fake.deliverSendStatus(true)
+            fake.deliverReply(payload = listOf(heartbeat.copyOf()))
+            relayRef.get()?.close()
+        })
+        val relay = relay(sdk)
+        relayRef.set(relay)
+
+        assertArrayEquals(heartbeat, relay.sendChallengeAndAwaitHeartbeat(APP_ID, challenge()))
+        assertEquals(1, sdk.shutdowns.get())
+    }
+
+    @Test
+    fun exposesTheOpaqueDeviceIdentifierAndHandle() {
+        assertEquals(WATCH_ID, WATCH.id)
+        assertEquals("watch", WATCH.handle)
     }
 
     private fun relay(sdk: FakeConnectIqSdk, timeoutMs: Long = 1_000): ConnectIqMobileSdkRelay =
@@ -272,17 +448,33 @@ class ConnectIqRelayTest {
         private val devices: List<ConnectIqDevice> = listOf(WATCH),
         private val onSend: (FakeConnectIqSdk) -> Unit = {},
         private val unregisterFailure: IOException? = null,
+        private val initializeFailure: RuntimeException? = null,
+        private val initializeWithoutCallback: Boolean = false,
+        private val deviceLookupFailure: RuntimeException? = null,
+        private val unregisterRuntimeFailure: RuntimeException? = null,
+        private val onDeviceLookup: () -> Unit = {},
     ) : ConnectIqSdk {
         val sent = mutableListOf<ByteArray>()
         val unregistered = AtomicInteger()
         val shutdowns = AtomicInteger()
         val sendEntered = CountDownLatch(1)
+        val initializeEntered = CountDownLatch(1)
+        val initializations = AtomicInteger()
         private var messageListener: ((String, Long, Boolean, List<Any?>) -> Unit)? = null
         private var statusListener: ((String, Long, Boolean) -> Unit)? = null
 
-        override fun initialize(onReady: (IOException?) -> Unit) = onReady(initError)
+        override fun initialize(onReady: (IOException?) -> Unit) {
+            initializations.incrementAndGet()
+            initializeEntered.countDown()
+            initializeFailure?.let { throw it }
+            if (!initializeWithoutCallback) onReady(initError)
+        }
 
-        override fun connectedDevices(): List<ConnectIqDevice> = devices
+        override fun connectedDevices(): List<ConnectIqDevice> {
+            deviceLookupFailure?.let { throw it }
+            onDeviceLookup()
+            return devices
+        }
 
         override fun registerForAppEvents(
             device: ConnectIqDevice,
@@ -308,6 +500,7 @@ class ConnectIqRelayTest {
             unregistered.incrementAndGet()
             messageListener = null
             unregisterFailure?.let { throw it }
+            unregisterRuntimeFailure?.let { throw it }
         }
 
         override fun shutdown() {

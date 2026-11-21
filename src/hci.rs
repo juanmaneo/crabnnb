@@ -281,6 +281,7 @@ mod tests {
     #[test]
     fn test_parse_event_too_short() {
         assert!(parse_event(&[HCI_EVENT_PKT, 0x01]).is_none());
+        assert!(parse_event(&[HCI_EVENT_PKT, EVT_INQUIRY_RESULT, 1]).is_none());
     }
 
     #[test]
@@ -301,13 +302,13 @@ mod tests {
     #[test]
     fn test_parse_event_cmd_complete() {
         let buf = [HCI_EVENT_PKT, EVT_CMD_COMPLETE, 4, 1, 0x34, 0x12, 0x00];
-        match parse_event(&buf) {
-            Some(HciEvent::CommandComplete { opcode, ret }) => {
-                assert_eq!(opcode, 0x1234);
-                assert_eq!(ret, vec![0x00]);
-            }
-            other => panic!("unexpected: {other:?}"),
-        }
+        assert_eq!(
+            parse_event(&buf),
+            Some(HciEvent::CommandComplete {
+                opcode: 0x1234,
+                ret: vec![0x00],
+            })
+        );
     }
 
     #[test]
@@ -321,13 +322,13 @@ mod tests {
         ];
         buf.extend_from_slice(&[0u8; 6]); // bdaddr
         buf.extend_from_slice(name);
-        match parse_event(&buf) {
-            Some(HciEvent::RemoteNameComplete { status, name }) => {
-                assert_eq!(status, 0);
-                assert_eq!(name, "MyDevice");
-            }
-            other => panic!("unexpected: {other:?}"),
-        }
+        assert_eq!(
+            parse_event(&buf),
+            Some(HciEvent::RemoteNameComplete {
+                status: 0,
+                name: "MyDevice".to_string(),
+            })
+        );
     }
 
     #[test]

@@ -262,21 +262,11 @@ mod tests {
 
     #[test]
     fn test_parse_defaults() {
-        let parsed = parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap();
-        match parsed {
-            Parsed::Run(r) => {
-                assert_eq!(r.mac.bytes(), [0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0xFF]);
-                assert!((r.max_distance_cm - 90.0).abs() < 1e-10);
-                assert_eq!(r.max_missed, 3);
-                assert_eq!(r.scan_period, Duration::from_secs(1));
-                assert_eq!(r.samples, 7);
-                assert!((r.rssi_at_1m - (-59.0)).abs() < 1e-10);
-                assert!(!r.dry_run);
-                assert!(!r.once);
-                assert!(r.verbose);
-            }
-            Parsed::Help | Parsed::GenKey(_) => panic!("expected Run"),
-        }
+        let mac = Mac::parse("AA:BB:CC:DD:EE:FF").unwrap();
+        assert_eq!(
+            parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap(),
+            Parsed::Run(defaults(mac))
+        );
     }
 
     #[test]
@@ -310,25 +300,22 @@ mod tests {
             "--quiet",
         ]))
         .unwrap();
-        match parsed {
-            Parsed::Run(r) => {
-                assert_eq!(r.lock_cmd, "loginctl lock-session");
-                assert_eq!(r.unlock_cmd, "loginctl unlock-session");
-                assert!((r.max_distance_cm - 150.0).abs() < 1e-10);
-                assert_eq!(r.max_missed, 5);
-                assert_eq!(r.scan_period, Duration::from_millis(2500));
-                assert_eq!(r.samples, 10);
-                assert_eq!(r.sample_sleep, Duration::from_millis(100));
-                assert_eq!(r.max_attempts, 20);
-                assert!((r.rssi_at_1m - (-65.0)).abs() < 1e-10);
-                assert_eq!(r.recv_timeout, Duration::from_millis(5000));
-                assert_eq!(r.max_iterations, 100);
-                assert!(r.dry_run);
-                assert!(r.once);
-                assert!(!r.verbose);
-            }
-            Parsed::Help | Parsed::GenKey(_) => panic!("expected Run"),
-        }
+        let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
+        expected.lock_cmd = "loginctl lock-session".to_string();
+        expected.unlock_cmd = "loginctl unlock-session".to_string();
+        expected.max_distance_cm = 150.0;
+        expected.max_missed = 5;
+        expected.scan_period = Duration::from_millis(2500);
+        expected.samples = 10;
+        expected.sample_sleep = Duration::from_millis(100);
+        expected.max_attempts = 20;
+        expected.rssi_at_1m = -65.0;
+        expected.recv_timeout = Duration::from_millis(5000);
+        expected.max_iterations = 100;
+        expected.dry_run = true;
+        expected.once = true;
+        expected.verbose = false;
+        assert_eq!(parsed, Parsed::Run(expected));
     }
 
     #[test]
@@ -339,8 +326,29 @@ mod tests {
 
     #[test]
     fn test_parse_missing_value() {
-        let err = parse(&args(&["AA:BB:CC:DD:EE:FF", "--max-distance-cm"])).unwrap_err();
-        assert!(err.contains("requires a value"));
+        for flag in [
+            "--lock-cmd",
+            "--unlock-cmd",
+            "--max-distance-cm",
+            "--max-missed",
+            "--scan-period",
+            "--samples",
+            "--sample-sleep-ms",
+            "--max-attempts",
+            "--rssi-at-1m",
+            "--recv-timeout-ms",
+            "--max-iterations",
+            "--key-file",
+            "--heartbeat-window-ms",
+            "--challenge-timeout-ms",
+            "--challenge-handle",
+            "--heartbeat-handle",
+            "--max-roundtrip-ms",
+            "--bridge-addr",
+        ] {
+            let err = parse(&args(&["AA:BB:CC:DD:EE:FF", flag])).unwrap_err();
+            assert!(err.contains("requires a value"), "unexpected error: {err}");
+        }
     }
 
     #[test]
@@ -356,18 +364,11 @@ mod tests {
 
     #[test]
     fn test_parse_secure_defaults() {
-        let parsed = parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap();
-        match parsed {
-            Parsed::Run(r) => {
-                assert_eq!(r.key_file, None);
-                assert!(!r.allow_insecure);
-                assert_eq!(r.heartbeat_window, Duration::from_millis(5000));
-                assert_eq!(r.challenge_timeout, Duration::from_millis(2000));
-                assert_eq!(r.challenge_handle, 0x0031);
-                assert_eq!(r.heartbeat_handle, 0x0034);
-            }
-            _ => panic!("expected Run"),
-        }
+        let mac = Mac::parse("AA:BB:CC:DD:EE:FF").unwrap();
+        assert_eq!(
+            parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap(),
+            Parsed::Run(defaults(mac))
+        );
     }
 
     #[test]
@@ -386,25 +387,23 @@ mod tests {
             "45",
         ]))
         .unwrap();
-        match parsed {
-            Parsed::Run(r) => {
-                assert_eq!(r.key_file, Some(PathBuf::from("/run/crabnnb/key.hex")));
-                assert_eq!(r.heartbeat_window, Duration::from_millis(3000));
-                assert_eq!(r.challenge_timeout, Duration::from_millis(1500));
-                assert_eq!(r.challenge_handle, 0x2a);
-                assert_eq!(r.heartbeat_handle, 45);
-            }
-            _ => panic!("expected Run"),
-        }
+        let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
+        expected.key_file = Some(PathBuf::from("/run/crabnnb/key.hex"));
+        expected.heartbeat_window = Duration::from_millis(3000);
+        expected.challenge_timeout = Duration::from_millis(1500);
+        expected.challenge_handle = 0x2a;
+        expected.heartbeat_handle = 45;
+        assert_eq!(parsed, Parsed::Run(expected));
     }
 
     #[test]
     fn test_parse_allow_insecure() {
-        let parsed = parse(&args(&["AA:BB:CC:DD:EE:FF", "--allow-insecure"])).unwrap();
-        match parsed {
-            Parsed::Run(r) => assert!(r.allow_insecure),
-            _ => panic!("expected Run"),
-        }
+        let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
+        expected.allow_insecure = true;
+        assert_eq!(
+            parse(&args(&["AA:BB:CC:DD:EE:FF", "--allow-insecure"])).unwrap(),
+            Parsed::Run(expected)
+        );
     }
 
     #[test]
@@ -423,6 +422,41 @@ mod tests {
     #[test]
     fn test_parse_zero_heartbeat_window_fails() {
         assert!(parse(&args(&["AA:BB:CC:DD:EE:FF", "--heartbeat-window-ms", "0"])).is_err());
+    }
+
+    #[test]
+    fn test_parse_rejects_zero_limits_and_bad_numeric_values() {
+        for invalid in [
+            args(&["AA:BB:CC:DD:EE:FF", "--max-missed", "0"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--samples", "0"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--max-attempts", "0"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--recv-timeout-ms", "0"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--challenge-timeout-ms", "0"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--max-distance-cm", "not-a-number"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--max-missed", "not-a-number"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--samples", "not-a-number"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--scan-period", "-1"]),
+            args(&["AA:BB:CC:DD:EE:FF", "--sample-sleep-ms", "-1"]),
+        ] {
+            assert!(
+                parse(&invalid).is_err(),
+                "unexpectedly accepted {invalid:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn test_parse_help_after_mac_and_uppercase_hex_handle() {
+        assert_eq!(
+            parse(&args(&["AA:BB:CC:DD:EE:FF", "-h"])).unwrap(),
+            Parsed::Help
+        );
+        let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
+        expected.challenge_handle = 0x2a;
+        assert_eq!(
+            parse(&args(&["AA:BB:CC:DD:EE:FF", "--challenge-handle", "0X2A"])).unwrap(),
+            Parsed::Run(expected)
+        );
     }
 
     #[test]
@@ -446,12 +480,9 @@ mod tests {
             "300",
         ]))
         .unwrap();
-        match parsed {
-            Parsed::Run(r) => {
-                assert_eq!(r.bridge_addr, Some("127.0.0.1:8765".to_string()));
-                assert_eq!(r.max_roundtrip, Duration::from_millis(300));
-            }
-            _ => panic!("expected Run"),
-        }
+        let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
+        expected.bridge_addr = Some("127.0.0.1:8765".to_string());
+        expected.max_roundtrip = Duration::from_millis(300);
+        assert_eq!(parsed, Parsed::Run(expected));
     }
 }

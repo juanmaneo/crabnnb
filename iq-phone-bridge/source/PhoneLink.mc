@@ -1,37 +1,48 @@
-// PhoneLink: receives 16-byte challenges from the phone companion (relayed
-// from the PC) and answers with an encrypted heartbeat. Verify the exact
-// Communications delegate method names against the Connect IQ SDK.
+// Handles API 1.4 phone-app messages. Both directions use hexadecimal strings
+// because the FR235 does not expose Lang.ByteArray (API 3.0+).
 
-import Toybox.Communications;
+import Toybox.Application;
 import Toybox.Lang;
-import Toybox.Storage;
-import Toybox.System;
+import Toybox.Communications;
+import Toybox.Time;
 
-class PhoneLink extends Communications.CommunicationsDelegate {
-
-    private var _key as ByteArray;
+class PhoneLink {
+    private var _key as Array<Number>;
     private var _counter as Number;
 
-    function initialize(key as ByteArray) {
+    function initialize(key as Array<Number>) {
         _key = key;
-        var stored = Storage.getValue("counter");
+        var app = Application.getApp();
+        var stored = app.getProperty("counter");
         _counter = (stored == null) ? 1 : stored as Number;
-        Communications.registerForPhoneAppMessages(self);
+        Communications.registerForPhoneAppMessages(method(:onMessageFromPhoneApp));
     }
 
-    function onMessageFromPhoneApp(message as ByteArray) as Void {
-        if (message == null || message.size() != 16) {
-            return;
-        }
-        var clock = System.getClockTime();
-        var tsSec = clock.unixTimestamp as Number; // wall-clock unix seconds; verify field name against SDK
-        var hb = BridgeCrypto.buildHeartbeat(_key, _counter, tsSec, message);
-        Communications.sendMessage(hb, null, self);
+    function onMessageFromPhoneApp(message as Communications.PhoneAppMessage) as Void {
+        if (message.data == null) { return; }
+        var challengeHex = message.data as String;
+        if (challengeHex.length() != 32) { return; }
+        var challenge = BridgeCrypto.fromHex(challengeHex, 16);
+        if (challenge == null) { return; }
+
+        var timestamp = Time.now().value();
+        var heartbeat = BridgeCrypto.buildHeartbeat(_key, _counter, timestamp, challenge);
+        if (heartbeat.size() != 81) { return; }
+
         _counter += 1;
-        Storage.setValue("counter", _counter);
+        Application.getApp().setProperty("counter", _counter);
+        Communications.transmit(BridgeCrypto.toHex(heartbeat), null, new BridgeTransmitListener());
+    }
+}
+
+class BridgeTransmitListener extends Communications.ConnectionListener {
+    function initialize() {
+        ConnectionListener.initialize();
     }
 
-    function onMessageToPhoneApp(message as ByteArray) as Void {
-        // delivery ack from the phone side; nothing to do
+    function onComplete() as Void {
+    }
+
+    function onError() as Void {
     }
 }

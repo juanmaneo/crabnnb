@@ -94,9 +94,24 @@ mod tests {
         assert!(result.unwrap_err().to_string().contains("exit code 42"));
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn test_run_shell_with_signal_termination() {
+        let result = run_shell_with("/bin/sh", "kill -TERM $$");
+        let error = result.unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::Other);
+        assert!(error.to_string().contains("terminated by signal"));
+    }
+
     #[test]
     fn test_default_commands_defined() {
         assert!(DEFAULT_LOCK_CMD.contains("lock"));
-        assert!(DEFAULT_UNLOCK_CMD.contains("deactivate") || DEFAULT_UNLOCK_CMD.contains("unlock"));
+        assert!(DEFAULT_UNLOCK_CMD.contains("deactivate"));
+    }
+
+    #[test]
+    fn test_run_shell_with_missing_program_reports_spawn_error() {
+        let error = run_shell_with("/definitely/not/a/shell", "true").unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::NotFound);
     }
 }

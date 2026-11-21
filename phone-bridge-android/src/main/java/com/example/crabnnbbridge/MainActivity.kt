@@ -14,7 +14,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val relay = ConnectIqMobileSdkRelay(applicationContext)
+        val relay = ConnectIqRelayFactory.create(applicationContext)
         connectIqRelay = relay
         relay.start()
         val server = BridgeTcpServer(

@@ -110,15 +110,30 @@ pub fn aes256_cbc_decrypt_raw(
 
 use cbc::cipher::block_padding::Pkcs7;
 
+fn random_bytes_with(
+    buf: &mut [u8],
+    open: &mut dyn FnMut() -> io::Result<Box<dyn Read>>,
+) -> io::Result<()> {
+    let mut reader = open()?;
+    reader.read_exact(buf)
+}
+
 pub fn random_bytes(buf: &mut [u8]) -> io::Result<()> {
-    let mut f = fs::File::open("/dev/urandom")?;
-    f.read_exact(buf)
+    let mut open = || fs::File::open("/dev/urandom").map(|file| Box::new(file) as Box<dyn Read>);
+    random_bytes_with(buf, &mut open)
+}
+
+fn random_vec_with(
+    n: usize,
+    fill: &mut dyn FnMut(&mut [u8]) -> io::Result<()>,
+) -> io::Result<Vec<u8>> {
+    let mut v = vec![0u8; n];
+    fill(&mut v)?;
+    Ok(v)
 }
 
 pub fn random_vec(n: usize) -> io::Result<Vec<u8>> {
-    let mut v = vec![0u8; n];
-    random_bytes(&mut v)?;
-    Ok(v)
+    random_vec_with(n, &mut random_bytes)
 }
 
 pub fn to_hex(bytes: &[u8]) -> String {
@@ -187,9 +202,17 @@ pub fn load_key(path: &Path) -> io::Result<[u8; KEY_LEN]> {
     Ok(key)
 }
 
-pub fn generate_key_file(path: &Path) -> io::Result<()> {
+fn write_key(writer: &mut dyn Write, key: &[u8; KEY_LEN]) -> io::Result<()> {
+    writer.write_all(to_hex(key).as_bytes())?;
+    writer.write_all(b"\n")
+}
+
+fn generate_key_file_with_random(
+    path: &Path,
+    fill: &mut dyn FnMut(&mut [u8]) -> io::Result<()>,
+) -> io::Result<()> {
     let mut key = [0u8; KEY_LEN];
-    random_bytes(&mut key)?;
+    fill(&mut key)?;
     let mut opts = fs::OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
@@ -198,9 +221,11 @@ pub fn generate_key_file(path: &Path) -> io::Result<()> {
         opts.mode(0o600);
     }
     let mut f = opts.open(path)?;
-    f.write_all(to_hex(&key).as_bytes())?;
-    f.write_all(b"\n")?;
-    Ok(())
+    write_key(&mut f, &key)
+}
+
+pub fn generate_key_file(path: &Path) -> io::Result<()> {
+    generate_key_file_with_random(path, &mut random_bytes)
 }
 
 #[cfg(test)]
@@ -246,6 +271,76 @@ mod tests {
         assert_eq!(sealed, expected);
         let opened = open(&key, &nonce, &aad, &sealed).unwrap();
         assert_eq!(opened, pt);
+    }
+
+    #[test]
+    fn test_random_io_errors_are_propagated() {
+        let mut open_error_source = || -> io::Result<Box<dyn Read>> {
+            Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "entropy source unavailable",
+            ))
+        };
+        let open_error = random_bytes_with(&mut [0u8; 4], &mut open_error_source).unwrap_err();
+        assert_eq!(open_error.kind(), io::ErrorKind::NotFound);
+
+        let mut short_read_source =
+            || Ok(Box::new(std::io::Cursor::new(vec![1u8, 2])) as Box<dyn Read>);
+        let read_error = random_bytes_with(&mut [0u8; 4], &mut short_read_source).unwrap_err();
+        assert_eq!(read_error.kind(), io::ErrorKind::UnexpectedEof);
+
+        let mut fill_error =
+            |_: &mut [u8]| Err(io::Error::new(io::ErrorKind::PermissionDenied, "blocked"));
+        let vector_error = random_vec_with(4, &mut fill_error).unwrap_err();
+        assert_eq!(vector_error.kind(), io::ErrorKind::PermissionDenied);
+    }
+
+    #[test]
+    fn test_generate_key_file_propagates_entropy_and_write_errors() {
+        use std::io::Write;
+
+        let dir = std::env::temp_dir().join(format!(
+            "crabnnb-crypto-test-write-error-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("key.hex");
+        let mut failed_entropy =
+            |_: &mut [u8]| Err(io::Error::new(io::ErrorKind::Other, "entropy failed"));
+        let entropy_error = generate_key_file_with_random(&path, &mut failed_entropy).unwrap_err();
+        assert_eq!(entropy_error.kind(), io::ErrorKind::Other);
+        assert!(!path.exists());
+
+        struct FailingWriter(usize);
+        impl Write for FailingWriter {
+            fn write(&mut self, bytes: &[u8]) -> io::Result<usize> {
+                if self.0 == 0 {
+                    return Err(io::Error::new(io::ErrorKind::BrokenPipe, "writer failed"));
+                }
+                let written = bytes.len().min(self.0);
+                self.0 -= written;
+                Ok(written)
+            }
+
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+
+        FailingWriter(0).flush().unwrap();
+        assert_eq!(
+            write_key(&mut FailingWriter(0), &[0x42; KEY_LEN])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        assert_eq!(
+            write_key(&mut FailingWriter(KEY_LEN * 2), &[0x42; KEY_LEN])
+                .unwrap_err()
+                .kind(),
+            io::ErrorKind::BrokenPipe
+        );
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]
@@ -350,8 +445,46 @@ mod tests {
         assert_eq!(to_hex(&bytes), "00abff10");
         assert_eq!(from_hex("00abff10").unwrap(), bytes);
         assert_eq!(from_hex("00 ab ff 10\n").unwrap(), bytes);
+        assert_eq!(from_hex("ABcd").unwrap(), [0xab, 0xcd]);
         assert!(from_hex("0").is_err());
         assert!(from_hex("zz").is_err());
+        assert!(from_hex("0z").is_err());
+    }
+
+    #[test]
+    fn test_crypto_error_display_and_invalid_key_file_contents() {
+        assert_eq!(
+            CryptoError::InvalidTag.to_string(),
+            "authentication tag mismatch"
+        );
+
+        let dir = std::env::temp_dir().join(format!(
+            "crabnnb-crypto-test-invalid-{}",
+            std::process::id()
+        ));
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("key.hex");
+        fs::write(&path, "not hex").unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o600)).unwrap();
+        }
+        let error = load_key(&path).unwrap_err();
+        assert_eq!(error.kind(), io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("key file"));
+
+        let directory_error = load_key(&dir).unwrap_err();
+        assert!(matches!(
+            directory_error.kind(),
+            io::ErrorKind::IsADirectory | io::ErrorKind::PermissionDenied
+        ));
+        fs::write(&path, [0xff]).unwrap();
+        assert_eq!(
+            load_key(&path).unwrap_err().kind(),
+            io::ErrorKind::InvalidData
+        );
+        fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

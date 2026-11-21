@@ -263,3 +263,59 @@ impl Sys for LinuxSys {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_linux_syscall_results() {
+        assert_eq!(cvt(0).unwrap(), 0);
+        assert_eq!(cvt(42).unwrap(), 42);
+        assert_eq!(cvt(-5).unwrap_err().raw_os_error(), Some(5));
+        assert_eq!(cvt(-4095).unwrap_err().raw_os_error(), Some(4095));
+    }
+
+    #[test]
+    fn linux_sys_wrappers_cover_success_and_error_results() {
+        let sys = LinuxSys;
+        let mut fds = [-1, -1];
+        sys.socketpair(1, 1, 0, &mut fds).unwrap();
+        assert!(fds[0] >= 0 && fds[1] >= 0);
+
+        assert_eq!(sys.write(fds[0], b"ping").unwrap(), 4);
+        let mut bytes = [0; 4];
+        assert_eq!(sys.read(fds[1], &mut bytes).unwrap(), 4);
+        assert_eq!(&bytes, b"ping");
+        let mut pending = [0u8; 4];
+        assert_eq!(sys.ioctl(fds[1], 0x541b, &mut pending).unwrap(), 4);
+        sys.close(fds[0]).unwrap();
+        sys.close(fds[1]).unwrap();
+
+        assert!(sys.socket(-1, 1, 0).is_err());
+        assert!(sys.socketpair(-1, 1, 0, &mut fds).is_err());
+        assert!(sys.bind(-1, &[0; 16]).is_err());
+        assert!(sys.listen(-1, 1).is_err());
+        assert!(sys.connect(-1, &[0; 16]).is_err());
+        assert!(sys.accept(-1).is_err());
+        assert!(sys.read(-1, &mut bytes).is_err());
+        assert!(sys.write(-1, b"x").is_err());
+        assert!(sys.close(-1).is_err());
+        assert!(sys.ioctl(-1, 0, &mut bytes).is_err());
+        assert!(sys.setsockopt(-1, 1, 1, &[0; 8]).is_err());
+
+        let fd = sys.socket(1, 1, 0).unwrap();
+        let mut address = vec![1, 0];
+        address.extend_from_slice(format!("crabnnb-{}", std::process::id()).as_bytes());
+        sys.bind(fd, &address).unwrap();
+        sys.listen(fd, 1).unwrap();
+        let client = sys.socket(1, 1, 0).unwrap();
+        sys.connect(client, &address).unwrap();
+        let accepted = sys.accept(fd).unwrap();
+        let timeout = [0u8; 16];
+        sys.setsockopt(accepted, 1, 20, &timeout).unwrap();
+        sys.close(accepted).unwrap();
+        sys.close(client).unwrap();
+        sys.close(fd).unwrap();
+    }
+}

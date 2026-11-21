@@ -99,6 +99,17 @@ mod tests {
     }
 
     #[test]
+    fn test_record_sample_blends_accuracy_when_under_one_meter() {
+        let mut s = Sampler::new(-59.0);
+        let distance = s.record_sample(-59.0, Some(-59.0));
+        let expected_accuracy = (distance::old_accuracy(-59.0, -59.0, -59.0)
+            + distance::new_accuracy(-59.0, -59.0, -59.0))
+            / 2.0;
+        assert!(expected_accuracy <= 1.0);
+        assert!((distance - (1.0 * 3.0 + expected_accuracy) / 4.0).abs() < 1e-10);
+    }
+
+    #[test]
     fn test_finish_empty_uses_previous() {
         let mut s = Sampler::new(-59.0);
         s.prev_avg_distance = 2.5;

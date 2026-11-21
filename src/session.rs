@@ -30,6 +30,12 @@ impl std::fmt::Display for ProbeError {
 
 impl std::error::Error for ProbeError {}
 
+fn unix_millis(now: SystemTime) -> io::Result<u64> {
+    now.duration_since(UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_millis() as u64)
+        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))
+}
+
 #[derive(Debug, Clone, Copy)]
 pub struct ProbeOk {
     pub heartbeat: Heartbeat,
@@ -69,18 +75,34 @@ impl SecureSession {
         self.max_roundtrip = d;
     }
 
-    pub fn probe<B: BtOps + ?Sized>(&mut self, bt: &mut B) -> Result<ProbeOk, ProbeError> {
-        let challenge = crypto::random_vec(heartbeat::CHALLENGE_LEN).map_err(ProbeError::Io)?;
+    pub fn probe(&mut self, bt: &mut dyn BtOps) -> Result<ProbeOk, ProbeError> {
+        let mut challenge_source = || crypto::random_vec(heartbeat::CHALLENGE_LEN);
+        self.probe_with_challenge_source(bt, &mut challenge_source)
+    }
+
+    fn probe_with_challenge_source(
+        &mut self,
+        bt: &mut dyn BtOps,
+        challenge_source: &mut dyn FnMut() -> io::Result<Vec<u8>>,
+    ) -> Result<ProbeOk, ProbeError> {
+        let mut now_source = SystemTime::now;
+        self.probe_with_sources(bt, challenge_source, &mut now_source)
+    }
+
+    fn probe_with_sources(
+        &mut self,
+        bt: &mut dyn BtOps,
+        challenge_source: &mut dyn FnMut() -> io::Result<Vec<u8>>,
+        now_source: &mut dyn FnMut() -> SystemTime,
+    ) -> Result<ProbeOk, ProbeError> {
+        let challenge = challenge_source().map_err(ProbeError::Io)?;
         let t0 = Instant::now();
         let resp = bt
             .secure_probe(&challenge)
             .map_err(ProbeError::Io)?
             .ok_or(ProbeError::NoResponse)?;
         let rtt = t0.elapsed();
-        let now_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_err(|e| ProbeError::Io(io::Error::new(io::ErrorKind::Other, e)))?
-            .as_millis() as u64;
+        let now_ms = unix_millis(now_source()).map_err(ProbeError::Io)?;
         let hb = heartbeat::open_heartbeat(
             &self.key,
             &self.aad,
@@ -117,6 +139,7 @@ mod tests {
         Valid { counter: u64, ts_ms: u64 },
         Raw(Vec<u8>),
         None,
+        IoError,
     }
 
     impl BtOps for MockBt {
@@ -146,6 +169,7 @@ mod tests {
                 }
                 MockStep::Raw(b) => Ok(Some(b)),
                 MockStep::None => Ok(None),
+                MockStep::IoError => Err(io::Error::new(io::ErrorKind::BrokenPipe, "probe failed")),
             }
         }
     }
@@ -179,11 +203,74 @@ mod tests {
     }
 
     #[test]
+    fn test_probe_io_error_and_pre_epoch_clock_error() {
+        let (mut bt, mut session) = fixture(vec![]);
+        let mut unavailable_random = || {
+            Err(io::Error::new(
+                io::ErrorKind::PermissionDenied,
+                "random unavailable",
+            ))
+        };
+        let result = session.probe_with_challenge_source(&mut bt, &mut unavailable_random);
+        assert!(
+            matches!(result, Err(ProbeError::Io(error)) if error.kind() == io::ErrorKind::PermissionDenied)
+        );
+
+        let (mut bt, mut session) = fixture(vec![MockStep::IoError]);
+        assert!(matches!(
+            session.probe(&mut bt),
+            Err(ProbeError::Io(error)) if error.kind() == io::ErrorKind::BrokenPipe
+        ));
+
+        let before_epoch = UNIX_EPOCH - Duration::from_secs(1);
+        assert!(unix_millis(before_epoch).is_err());
+
+        let (mut bt, mut session) = fixture(vec![MockStep::Valid {
+            counter: 1,
+            ts_ms: now_ms(),
+        }]);
+        let mut challenge_source = || Ok(vec![0x33; heartbeat::CHALLENGE_LEN]);
+        let mut clock_source = || before_epoch;
+        let result = session.probe_with_sources(&mut bt, &mut challenge_source, &mut clock_source);
+        assert!(
+            matches!(result, Err(ProbeError::Io(error)) if error.kind() == io::ErrorKind::Other)
+        );
+    }
+
+    #[test]
+    fn test_probe_error_display_formats_all_variants() {
+        let io_error = ProbeError::Io(io::Error::new(io::ErrorKind::BrokenPipe, "closed"));
+        assert_eq!(io_error.to_string(), "transport error: closed");
+        assert_eq!(
+            ProbeError::NoResponse.to_string(),
+            "no heartbeat response from device"
+        );
+        assert!(ProbeError::Verify(HeartbeatError::Replay)
+            .to_string()
+            .contains("replayed heartbeat"));
+        assert!(ProbeError::TooSlow(Duration::from_millis(1))
+            .to_string()
+            .contains("exceeds the configured latency limit"));
+    }
+
+    #[test]
     fn test_probe_valid_heartbeat() {
         let (mut bt, mut session) = fixture(vec![MockStep::Valid {
             counter: 1,
             ts_ms: now_ms(),
         }]);
+        assert_eq!(bt.discover().unwrap(), 1);
+        assert_eq!(
+            bt.lookup_name(&Mac::parse("AA:BB:CC:DD:EE:FF").unwrap())
+                .unwrap()
+                .as_deref(),
+            Some("watch")
+        );
+        assert_eq!(bt.distance_approximation(), 0.5);
+        assert_eq!(
+            bt.local_mac().unwrap(),
+            Mac::parse("11:22:33:44:55:66").unwrap()
+        );
         let ok = session.probe(&mut bt).unwrap();
         assert_eq!(ok.heartbeat.counter, 1);
         assert_eq!(session.last_counter(), 1);
@@ -197,10 +284,10 @@ mod tests {
         }]);
         bt.probe_delay = Duration::from_millis(50);
         session.set_max_roundtrip(Duration::from_millis(5));
-        match session.probe(&mut bt) {
-            Err(ProbeError::TooSlow(rtt)) => assert!(rtt >= Duration::from_millis(50)),
-            other => panic!("expected TooSlow, got {other:?}"),
-        }
+        assert!(matches!(
+            session.probe(&mut bt),
+            Err(ProbeError::TooSlow(rtt)) if rtt >= Duration::from_millis(50)
+        ));
     }
 
     #[test]
@@ -227,28 +314,28 @@ mod tests {
             },
         ]);
         assert!(session.probe(&mut bt).is_ok());
-        match session.probe(&mut bt) {
-            Err(ProbeError::Verify(HeartbeatError::Replay)) => {}
-            other => panic!("expected replay error, got {other:?}"),
-        }
+        assert!(matches!(
+            session.probe(&mut bt),
+            Err(ProbeError::Verify(HeartbeatError::Replay))
+        ));
     }
 
     #[test]
     fn test_probe_garbage_rejected() {
         let (mut bt, mut session) = fixture(vec![MockStep::Raw(vec![0u8; heartbeat::MESSAGE_LEN])]);
-        match session.probe(&mut bt) {
-            Err(ProbeError::Verify(HeartbeatError::InvalidTag)) => {}
-            other => panic!("expected invalid tag, got {other:?}"),
-        }
+        assert!(matches!(
+            session.probe(&mut bt),
+            Err(ProbeError::Verify(HeartbeatError::InvalidTag))
+        ));
     }
 
     #[test]
     fn test_probe_no_response() {
         let (mut bt, mut session) = fixture(vec![MockStep::None]);
-        match session.probe(&mut bt) {
-            Err(ProbeError::NoResponse) => {}
-            other => panic!("expected no response, got {other:?}"),
-        }
+        assert!(matches!(
+            session.probe(&mut bt),
+            Err(ProbeError::NoResponse)
+        ));
     }
 
     #[test]
@@ -258,9 +345,9 @@ mod tests {
             ts_ms: now_ms(),
         }]);
         session.key = [0x99u8; crypto::KEY_LEN];
-        match session.probe(&mut bt) {
-            Err(ProbeError::Verify(HeartbeatError::InvalidTag)) => {}
-            other => panic!("expected invalid tag, got {other:?}"),
-        }
+        assert!(matches!(
+            session.probe(&mut bt),
+            Err(ProbeError::Verify(HeartbeatError::InvalidTag))
+        ));
     }
 }

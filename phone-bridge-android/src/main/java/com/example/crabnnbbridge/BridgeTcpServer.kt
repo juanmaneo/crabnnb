@@ -19,6 +19,7 @@ internal class BridgeTcpServer(
     private val onClientAccepted: () -> Unit = {},
     private val onListenerError: (IOException) -> Unit = {},
     private val onClientError: (IOException) -> Unit = {},
+    private val serverSocketFactory: () -> ServerSocket = { ServerSocket() },
 ) : AutoCloseable {
     companion object {
         const val DEFAULT_PORT = 8765
@@ -35,7 +36,7 @@ internal class BridgeTcpServer(
 
     fun run() {
         try {
-            ServerSocket().use { server ->
+            serverSocketFactory().use { server ->
                 server.reuseAddress = true
                 server.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), port))
                 listener = server
@@ -79,7 +80,7 @@ internal class BridgeTcpServer(
         closeQuietly(activeClient)
     }
 
-    private fun closeQuietly(closeable: Closeable?) {
+    internal fun closeQuietly(closeable: Closeable?) {
         try {
             closeable?.close()
         } catch (_: IOException) {
@@ -92,7 +93,7 @@ internal class BridgeTcpServer(
             try {
                 val input = DataInputStream(socket.getInputStream())
                 val output = DataOutputStream(socket.getOutputStream())
-                while (!socket.isClosed) {
+                while (true) {
                     val challenge = try {
                         BridgeProtocol.readChallenge(input)
                     } catch (_: EOFException) {

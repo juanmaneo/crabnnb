@@ -1,8 +1,14 @@
 package com.example.crabnnbbridge
 
+import java.io.ByteArrayOutputStream
+import java.io.Closeable
 import java.io.DataInputStream
 import java.io.DataOutputStream
 import java.io.IOException
+import java.io.InputStream
+import java.io.OutputStream
+import java.net.ServerSocket
+import java.net.SocketAddress
 import java.net.Socket
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -109,6 +115,190 @@ class BridgeTcpServerTest {
     }
 
     @Test
+    fun reportsClientIoFailureUnlessShutdownWasRequested() {
+        val clientError = AtomicReference<IOException?>()
+        val errorReported = CountDownLatch(1)
+        val server = startServer(
+            relay = object : ConnectIqRelay {
+                override fun sendChallengeAndAwaitHeartbeat(iqAppId: String, challenge: ByteArray): ByteArray =
+                    throw IOException("watch unavailable")
+            },
+            onClientError = {
+                clientError.set(it)
+                errorReported.countDown()
+            },
+        )
+
+        try {
+            Socket("127.0.0.1", server.port).use { socket ->
+                socket.soTimeout = 2_000
+                writeFrame(DataOutputStream(socket.getOutputStream()), ByteArray(BridgeProtocol.CHALLENGE_SIZE))
+                assertEquals(-1, DataInputStream(socket.getInputStream()).read())
+            }
+            assertTrue(errorReported.await(2, TimeUnit.SECONDS))
+            assertEquals("watch unavailable", clientError.get()?.message)
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun closesAcceptedClientIfShutdownWinsBeforeHandling() {
+        val service = AtomicReference<BridgeTcpServer?>()
+        val server = startServer(
+            relay = object : ConnectIqRelay {
+                override fun sendChallengeAndAwaitHeartbeat(iqAppId: String, challenge: ByteArray): ByteArray =
+                    error("relay must not be called after shutdown")
+            },
+            onClientAccepted = { service.get()?.close() },
+        )
+        service.set(server.service)
+
+        try {
+            Socket("127.0.0.1", server.port).use { socket ->
+                socket.soTimeout = 2_000
+                assertEquals(-1, DataInputStream(socket.getInputStream()).read())
+            }
+        } finally {
+            server.stop()
+        }
+    }
+
+    @Test
+    fun exercisesDefaultListenerClientAndErrorCallbacks() {
+        ServerSocket(0).use { occupied ->
+            BridgeTcpServer(errorRelay(), port = occupied.localPort).run()
+        }
+
+        val port = AtomicInteger()
+        val listening = CountDownLatch(1)
+        val server = BridgeTcpServer(
+            relay = object : ConnectIqRelay {
+                override fun sendChallengeAndAwaitHeartbeat(iqAppId: String, challenge: ByteArray): ByteArray =
+                    throw IOException("default client error callback")
+            },
+            port = 0,
+            onListening = {
+                port.set(it)
+                listening.countDown()
+            },
+        )
+        val worker = thread { server.run() }
+        try {
+            assertTrue(listening.await(2, TimeUnit.SECONDS))
+            Socket("127.0.0.1", port.get()).use { socket ->
+                socket.soTimeout = 2_000
+                writeFrame(DataOutputStream(socket.getOutputStream()), ByteArray(BridgeProtocol.CHALLENGE_SIZE))
+                assertEquals(-1, DataInputStream(socket.getInputStream()).read())
+            }
+        } finally {
+            server.close()
+            worker.join(2_000)
+        }
+        assertFalse("default-callback server did not stop", worker.isAlive)
+    }
+
+    @Test
+    fun reportsBindFailureUnlessShutdownWasRequested() {
+        ServerSocket(0).use { occupied ->
+            val error = AtomicReference<IOException?>()
+            BridgeTcpServer(
+                relay = errorRelay(),
+                port = occupied.localPort,
+                onListenerError = { error.set(it) },
+            ).run()
+            assertTrue(error.get() is IOException)
+
+            val suppressed = AtomicInteger()
+            val stopped = BridgeTcpServer(
+                relay = errorRelay(),
+                port = occupied.localPort,
+                onListenerError = { suppressed.incrementAndGet() },
+            )
+            stopped.close()
+            stopped.run()
+            assertEquals(0, suppressed.get())
+        }
+    }
+
+    @Test
+    fun reportsUnexpectedAcceptFailureAndStopsAfterCloseInListeningCallback() {
+        val acceptError = AtomicReference<IOException?>()
+        val brokenSocket = object : ServerSocket() {
+            override fun bind(endpoint: SocketAddress?, backlog: Int) = Unit
+            override fun getLocalPort(): Int = 12345
+            override fun accept(): Socket = throw IOException("accept failed")
+        }
+        BridgeTcpServer(
+            relay = errorRelay(),
+            onListenerError = { acceptError.set(it) },
+            serverSocketFactory = { brokenSocket },
+        ).run()
+        assertEquals("accept failed", acceptError.get()?.message)
+
+        lateinit var service: BridgeTcpServer
+        val listening = CountDownLatch(1)
+        service = BridgeTcpServer(
+            relay = errorRelay(),
+            port = 0,
+            onListening = {
+                service.close()
+                listening.countDown()
+            },
+        )
+        val worker = thread { service.run() }
+        assertTrue(listening.await(2, TimeUnit.SECONDS))
+        worker.join(2_000)
+        assertFalse("listener did not stop", worker.isAlive)
+    }
+
+    @Test
+    fun preservesClientFailureWhenSocketCloseAlsoFails() {
+        val accepted = CountDownLatch(1)
+        val client = object : Socket() {
+            override fun getInputStream(): InputStream = object : InputStream() {
+                override fun read(): Int = throw IllegalStateException("client read failed")
+            }
+
+            override fun getOutputStream(): OutputStream = ByteArrayOutputStream()
+
+            override fun close() = throw IOException("client close failed")
+        }
+        val fakeServer = object : ServerSocket() {
+            override fun bind(endpoint: SocketAddress?, backlog: Int) = Unit
+            override fun getLocalPort(): Int = 12346
+            override fun accept(): Socket = client
+        }
+        val service = BridgeTcpServer(
+            relay = errorRelay(),
+            onClientAccepted = { accepted.countDown() },
+            serverSocketFactory = { fakeServer },
+        )
+        val failure = AtomicReference<Throwable?>()
+        val worker = thread {
+            try {
+                service.run()
+            } catch (error: Throwable) {
+                failure.set(error)
+            }
+        }
+
+        assertTrue(accepted.await(2, TimeUnit.SECONDS))
+        worker.join(2_000)
+        assertFalse("server thread did not stop", worker.isAlive)
+        assertTrue(failure.get() is IllegalStateException)
+        assertEquals("client close failed", failure.get()?.suppressed?.singleOrNull()?.message)
+    }
+
+    @Test
+    fun closeQuietlySuppressesIoFailure() {
+        val service = BridgeTcpServer(errorRelay())
+        service.closeQuietly(object : Closeable {
+            override fun close() = throw IOException("close failed")
+        })
+    }
+
+    @Test
     fun rejectsMalformedChallengeFrameWithoutCallingRelay() {
         val relayCalls = AtomicInteger()
         val server = startServer(object : ConnectIqRelay {
@@ -133,6 +323,11 @@ class BridgeTcpServerTest {
         }
     }
 
+    private fun errorRelay() = object : ConnectIqRelay {
+        override fun sendChallengeAndAwaitHeartbeat(iqAppId: String, challenge: ByteArray): ByteArray =
+            error("relay must not be called")
+    }
+
     private fun noDevicesSdk() = object : ConnectIqSdk {
         override fun initialize(onReady: (IOException?) -> Unit) = onReady(null)
         override fun connectedDevices() = emptyList<ConnectIqDevice>()
@@ -154,6 +349,7 @@ class BridgeTcpServerTest {
     private fun startServer(
         relay: ConnectIqRelay,
         onClientAccepted: () -> Unit = {},
+        onClientError: (IOException) -> Unit = {},
     ): RunningServer {
         val started = CountDownLatch(1)
         val port = AtomicInteger()
@@ -166,6 +362,7 @@ class BridgeTcpServerTest {
                 started.countDown()
             },
             onClientAccepted = onClientAccepted,
+            onClientError = onClientError,
             onListenerError = {
                 listenerError.set(it)
                 started.countDown()
@@ -192,7 +389,7 @@ class BridgeTcpServerTest {
     }
 
     private class RunningServer(
-        private val service: BridgeTcpServer,
+        val service: BridgeTcpServer,
         private val thread: Thread,
         val port: Int,
         val listenerError: AtomicReference<IOException?>,

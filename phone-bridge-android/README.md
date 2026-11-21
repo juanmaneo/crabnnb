@@ -9,13 +9,24 @@ TCP listener to `127.0.0.1:8765`, suitable for local use with `adb forward`.
 Requirements: JDK 17, Gradle 8.9, and Android SDK Platform 35.
 
 ```sh
-gradle -p phone-bridge-android testDebugUnitTest assembleDebug
+gradle -p phone-bridge-android testDebugUnitTest jacocoTestCoverageVerification assembleDebug
 ```
 
 `testDebugUnitTest` covers JVM-only TCP framing and the relay's callback,
-timeout, device-selection, and malformed-payload behavior. It does not exercise
-Garmin BLE or a physical Connect IQ session. The debug APK is written to
-`phone-bridge-android/build/outputs/apk/debug/`.
+timeout, device-selection, shutdown, and malformed-payload behavior. The JaCoCo
+HTML and XML reports are written to `build/reports/jacoco/jacocoTestReport/`;
+`jacocoTestCoverageVerification` gates line, branch, and bytecode-instruction
+(region) coverage at 100%. `check` also runs this gate. The debug APK is written
+to `phone-bridge-android/build/outputs/apk/debug/`.
+
+Coverage is measured for every JVM-testable production class. The only excluded
+production classes are `MainActivity` (Android Activity lifecycle),
+`ConnectIqRelayFactory`, and `GarminConnectIqSdk` (Android/Garmin SDK construction
+and callback adapters). The relay state machine, protocol, socket server, and
+SDK-independent device/relay abstractions are included and held to the 100%
+threshold; no app protocol or relay logic is excluded. The Activity and SDK
+adapter still need Android/Garmin integration or instrumented tests, and this
+unit suite does not exercise Garmin BLE or a physical Connect IQ session.
 
 The app uses Garmin Connect IQ Mobile SDK 2.4.0 from Maven Central. On startup,
 it initializes the SDK in wireless mode, requires exactly one connected Garmin
@@ -29,7 +40,10 @@ and the watch paired and connected; the IQ app ID must match
 The PC protocol uses `u32le length ‖ payload` framing, with 16-byte challenges
 and 81-byte heartbeat responses. The SDK integration has not yet been verified
 against real Garmin Connect Mobile/FR235 hardware, and the IQ watch app still
-needs compilation against the official Connect IQ SDK.
+needs compilation against the official Connect IQ SDK. JDK 17 is the supported
+runtime; on the available JDK 27 environment JaCoCo 0.8.12 may print a
+non-fatal unsupported-class warning for a JDK-internal class, but app classes
+are instrumented and the coverage verification task completes.
 
 ## Security/status notes
 
