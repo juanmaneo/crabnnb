@@ -9,11 +9,12 @@ the TCP listener to `127.0.0.1:8765`, suitable for local use with `adb forward`.
 Requirements: JDK 17, Gradle 8.9, and Android SDK Platform 35.
 
 ```sh
-gradle -p phone-bridge-android assembleDebug
+gradle -p phone-bridge-android testDebugUnitTest assembleDebug
 ```
 
-The output APK is under
-`phone-bridge-android/build/outputs/apk/debug/`.
+`testDebugUnitTest` covers JVM-only TCP framing and fail-closed relay behavior;
+it does not exercise Garmin BLE or Connect IQ Mobile SDK integration. The debug
+APK is written to `phone-bridge-android/build/outputs/apk/debug/`.
 
 The Android app has an explicit `ConnectIqRelay` adapter boundary. The
 `ConnectIqMobileSdkStub` currently throws an error for every request, so the
