@@ -260,6 +260,9 @@ This project uses the standard Rust xtask pattern for custom build commands:
 ```bash
 # Clean build artifacts and profiling files
 cargo xtask clean
+
+# Remove generated root-level crabnnb-<pid> Unix socket leftovers
+cargo xtask clean-leftover
 ```
 
 ## Testing

@@ -40,6 +40,19 @@ fn iq_vectors_entrypoint_writes_generated_source() {
 }
 
 #[test]
+fn clean_leftover_entrypoint_reports_completion() {
+    let output = Command::new(env!("CARGO_BIN_EXE_xtask"))
+        .arg("clean-leftover")
+        .output()
+        .unwrap();
+
+    assert!(output.status.success());
+    assert!(String::from_utf8(output.stdout)
+        .unwrap()
+        .contains("Removed "));
+}
+
+#[test]
 fn clean_entrypoint_reports_missing_cargo_before_touching_profiles() {
     let empty_path = TempDir::new();
     let output = Command::new(env!("CARGO_BIN_EXE_xtask"))

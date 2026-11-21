@@ -19,6 +19,8 @@ enum Commands {
     Clean,
     /// Generate Rust-derived Monkey C vectors for the Connect IQ simulator tests
     IqVectors,
+    /// Remove generated root-level crabnnb-<pid> Unix socket files
+    CleanLeftover,
 }
 
 fn main() -> Result<()> {
@@ -64,6 +66,9 @@ where
     match cli.command {
         Commands::Clean => clean_at(project_root, run_cargo_clean)?,
         Commands::IqVectors => run_vectors()?,
+        Commands::CleanLeftover => {
+            clean_leftover_files_at(project_root)?;
+        }
     }
     Ok(())
 }
@@ -95,6 +100,75 @@ fn clean_profiling_files_at(project_root: &Path) -> Result<()> {
     }
 
     Ok(())
+}
+
+struct LeftoverEntry {
+    path: std::path::PathBuf,
+    name: std::ffi::OsString,
+    file_type: std::io::Result<std::fs::FileType>,
+}
+
+fn clean_leftover_files_at(project_root: &Path) -> Result<usize> {
+    let entries: Vec<std::io::Result<LeftoverEntry>> = std::fs::read_dir(project_root)
+        .with_context(|| format!("Failed to read project root {}", project_root.display()))?
+        .map(|entry| {
+            entry.map(|entry| LeftoverEntry {
+                path: entry.path(),
+                name: entry.file_name(),
+                file_type: entry.file_type(),
+            })
+        })
+        .collect();
+    clean_leftover_entries_at(project_root, entries, remove_path)
+}
+
+fn remove_path(path: &Path) -> std::io::Result<()> {
+    std::fs::remove_file(path)
+}
+
+fn clean_leftover_entries_at(
+    project_root: &Path,
+    entries: Vec<std::io::Result<LeftoverEntry>>,
+    remove_file: fn(&Path) -> std::io::Result<()>,
+) -> Result<usize> {
+    let mut removed = 0;
+
+    for entry in entries {
+        let entry = entry
+            .with_context(|| format!("Failed to read an entry in {}", project_root.display()))?;
+        let file_type = entry
+            .file_type
+            .with_context(|| format!("Failed to inspect {}", entry.path.display()))?;
+
+        if is_socket(&file_type) && is_leftover_socket_name(&entry.name) {
+            println!("Removing leftover socket: {}", entry.path.display());
+            remove_file(&entry.path)
+                .with_context(|| format!("Failed to remove {}", entry.path.display()))?;
+            removed += 1;
+        }
+    }
+
+    println!("Removed {removed} leftover socket(s).");
+    Ok(removed)
+}
+
+#[cfg(unix)]
+fn is_socket(file_type: &std::fs::FileType) -> bool {
+    use std::os::unix::fs::FileTypeExt;
+    file_type.is_socket()
+}
+
+#[cfg(not(unix))]
+fn is_socket(_file_type: &std::fs::FileType) -> bool {
+    false
+}
+
+fn is_leftover_socket_name(name: &std::ffi::OsStr) -> bool {
+    name.to_str()
+        .and_then(|name| name.strip_prefix("crabnnb-"))
+        .is_some_and(|suffix| {
+            !suffix.is_empty() && suffix.bytes().all(|byte| byte.is_ascii_digit())
+        })
 }
 
 fn iq_vectors_source() -> String {
@@ -211,6 +285,13 @@ mod tests {
         Ok(())
     }
 
+    fn fail_remove(_path: &Path) -> io::Result<()> {
+        Err(io::Error::new(
+            io::ErrorKind::Other,
+            "injected remove error",
+        ))
+    }
+
     struct FailingWriter;
 
     impl Write for FailingWriter {
@@ -251,6 +332,136 @@ mod tests {
         assert!(!profraw.exists());
         assert!(!profdata.exists());
         assert!(other.exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clean_leftover_removes_only_matching_socket_files() {
+        use std::os::unix::net::UnixListener;
+
+        let temp = TempDir::new();
+        let matching_socket = temp.0.join("crabnnb-132037");
+        let nonmatching_socket = temp.0.join("crabnnb-12x");
+        let regular_file = temp.0.join("crabnnb-456");
+        let nested = temp.0.join("nested");
+        fs::create_dir(&nested).unwrap();
+        let nested_socket = nested.join("crabnnb-789");
+        let _matching_listener = UnixListener::bind(&matching_socket).unwrap();
+        let _nonmatching_listener = UnixListener::bind(&nonmatching_socket).unwrap();
+        let _nested_listener = UnixListener::bind(&nested_socket).unwrap();
+        fs::write(&regular_file, "keep").unwrap();
+
+        let removed = clean_leftover_files_at(&temp.0).unwrap();
+
+        assert_eq!(removed, 1);
+        assert!(!matching_socket.exists());
+        assert!(nonmatching_socket.exists());
+        assert!(regular_file.exists());
+        assert!(nested_socket.exists());
+    }
+
+    #[test]
+    fn clean_leftover_reports_missing_project_root() {
+        let temp = TempDir::new();
+        let missing = temp.0.join("missing");
+
+        let error = clean_leftover_files_at(&missing).unwrap_err();
+
+        assert!(error.to_string().contains("Failed to read project root"));
+    }
+
+    #[test]
+    fn clean_leftover_reports_directory_entry_errors() {
+        let temp = TempDir::new();
+        let entries = vec![Err(io::Error::new(
+            io::ErrorKind::Other,
+            "injected read error",
+        ))];
+
+        let error = clean_leftover_entries_at(&temp.0, entries, remove_path).unwrap_err();
+
+        assert!(error.to_string().contains("Failed to read an entry"));
+    }
+
+    #[test]
+    fn clean_leftover_reports_file_type_errors() {
+        let temp = TempDir::new();
+        let path = temp.0.join("crabnnb-132037");
+        let entry = LeftoverEntry {
+            path,
+            name: std::ffi::OsString::from("crabnnb-132037"),
+            file_type: Err(io::Error::new(
+                io::ErrorKind::Other,
+                "injected metadata error",
+            )),
+        };
+
+        let error = clean_leftover_entries_at(&temp.0, vec![Ok(entry)], remove_path).unwrap_err();
+
+        assert!(error.to_string().contains("Failed to inspect"));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn clean_leftover_reports_socket_removal_errors() {
+        use std::os::unix::net::UnixListener;
+
+        let temp = TempDir::new();
+        let path = temp.0.join("crabnnb-132037");
+        let _listener = UnixListener::bind(&path).unwrap();
+        let entry = LeftoverEntry {
+            path: path.clone(),
+            name: std::ffi::OsString::from("crabnnb-132037"),
+            file_type: fs::symlink_metadata(&path).map(|metadata| metadata.file_type()),
+        };
+
+        let error = clean_leftover_entries_at(&temp.0, vec![Ok(entry)], fail_remove).unwrap_err();
+
+        assert!(error.to_string().contains("Failed to remove"));
+    }
+
+    #[test]
+    fn leftover_socket_name_requires_prefix_and_decimal_suffix() {
+        assert!(is_leftover_socket_name(std::ffi::OsStr::new(
+            "crabnnb-132037"
+        )));
+        assert!(!is_leftover_socket_name(std::ffi::OsStr::new("crabnnb-")));
+        assert!(!is_leftover_socket_name(std::ffi::OsStr::new(
+            "crabnnb-12x"
+        )));
+        assert!(!is_leftover_socket_name(std::ffi::OsStr::new(
+            "other-132037"
+        )));
+        #[cfg(unix)]
+        {
+            use std::os::unix::ffi::OsStrExt;
+            assert!(!is_leftover_socket_name(std::ffi::OsStr::from_bytes(
+                b"crabnnb-\xff",
+            )));
+        }
+    }
+
+    #[test]
+    fn clean_leftover_dispatches_without_running_cargo_clean() {
+        let temp = TempDir::new();
+
+        run_with_args(["xtask", "clean-leftover"], &temp.0, &mut no_op, &mut no_op).unwrap();
+    }
+
+    #[test]
+    fn clean_leftover_dispatch_propagates_cleanup_errors() {
+        let temp = TempDir::new();
+        let missing = temp.0.join("missing");
+
+        let error = run_with_args(
+            ["xtask", "clean-leftover"],
+            &missing,
+            &mut no_op,
+            &mut no_op,
+        )
+        .unwrap_err();
+
+        assert!(error.to_string().contains("Failed to read project root"));
     }
 
     #[test]
