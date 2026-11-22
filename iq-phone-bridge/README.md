@@ -46,23 +46,30 @@ for `fr235` with Connect IQ SDK 8.1.1. Compilation reports deprecation warnings
 for the API 1.4 app-property calls; actual FR235/phone interoperability remains
 untested.
 
-### Pairing key for a USB-sideloaded build
+### Sideloading a keyed hardware-test build
 
 The app first tries the `pairingKey` Connect IQ setting, then falls back to the
 `PairingKeyEmbedded` string resource if the saved setting is missing, blank, or
 invalid. This fallback handles a stale blank setting saved by an earlier sideload.
-For hardware testing, temporarily put the same 64-character hex key used by the
-PC in `resources/strings.xml` before compiling:
+For FR235 hardware testing, mount the watch and run this from the repository root:
 
-```xml
-<string id="PairingKeyEmbedded">YOUR_64_HEX_CHARACTER_KEY</string>
+```sh
+./iq-phone-bridge/sideload-fr235.sh
 ```
 
-Use the existing PC key file; do not generate a new key if the PC is already
-configured. Do not paste the key into chat, commit it, or leave it in tracked
-resources. After building, restore the resource to an empty value. The installed
-app and PC must use exactly the same 64 hex characters; `pairingKey` is a
-setting value, not the key-file path.
+The script uses the existing key at
+`$HOME/.Garmin/crabnnb-pairing-key.hex` and developer key at
+`$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.der`. Override these with
+`CRABNNB_KEY_FILE` and `CIQ_DEVELOPER_KEY`; override the compiler with
+`CIQ_MONKEYC` or the mount point with `GARMIN_MOUNT` if needed.
+
+The ignored `.hardware-test/` workspace persists as an unkeyed source copy to
+avoid recreating it manually. Each run makes a separate temporary keyed copy,
+compiles and verifies `GARMIN/APPS/PHONEBRI.PRG`, then removes the keyed source
+and `.PRG` on exit. The tracked resource remains empty. Do not copy the key into
+tracked files, paste it into chat, or generate a new one if the PC already uses
+the current key. The app and PC must use exactly the same 64 hex characters;
+`pairingKey` is a setting value, not the key-file path.
 
 ## Protocol (must match crabnnb `src/heartbeat.rs`, MODE_AES_CBC_HMAC)
 
