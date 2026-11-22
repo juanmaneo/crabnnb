@@ -188,6 +188,11 @@ fn handle_num(args: &[String], i: &mut usize, flag: &str) -> Result<u16, String>
     parse_one(v)
 }
 
+// Bridge-mode latency budget: the phone relay adds about 4 s to each round-trip
+// on the FR235, so the default direct-BLE limits are too tight.
+const BRIDGE_HEARTBEAT_WINDOW: Duration = Duration::from_millis(15_000);
+const BRIDGE_MAX_ROUNDTRIP: Duration = Duration::from_millis(8_000);
+
 pub fn parse(args: &[String]) -> Result<Parsed, String> {
     if args.is_empty() {
         return Err("missing bluetooth MAC address".to_string());
@@ -203,6 +208,8 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
     }
     let mac = Mac::parse(first).map_err(|e| format!("invalid bluetooth address '{first}': {e}"))?;
     let mut r = defaults(mac);
+    let mut window_given = false;
+    let mut roundtrip_given = false;
     let mut i = 1usize;
     while i < args.len() {
         let flag = args[i].as_str();
@@ -228,15 +235,29 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
             "--quiet" => r.verbose = false,
             "--key-file" => r.key_file = Some(PathBuf::from(value(args, &mut i, flag)?)),
             "--allow-insecure" => r.allow_insecure = true,
-            "--heartbeat-window-ms" => r.heartbeat_window = millis(args, &mut i, flag)?,
+            "--heartbeat-window-ms" => {
+                r.heartbeat_window = millis(args, &mut i, flag)?;
+                window_given = true;
+            }
             "--challenge-timeout-ms" => r.challenge_timeout = millis(args, &mut i, flag)?,
             "--challenge-handle" => r.challenge_handle = handle_num(args, &mut i, flag)?,
             "--heartbeat-handle" => r.heartbeat_handle = handle_num(args, &mut i, flag)?,
-            "--max-roundtrip-ms" => r.max_roundtrip = millis(args, &mut i, flag)?,
+            "--max-roundtrip-ms" => {
+                r.max_roundtrip = millis(args, &mut i, flag)?;
+                roundtrip_given = true;
+            }
             "--bridge-addr" => r.bridge_addr = Some(value(args, &mut i, flag)?.to_string()),
             other => return Err(format!("unknown option '{other}'")),
         }
         i += 1;
+    }
+    if r.bridge_addr.is_some() {
+        if !window_given {
+            r.heartbeat_window = BRIDGE_HEARTBEAT_WINDOW;
+        }
+        if !roundtrip_given {
+            r.max_roundtrip = BRIDGE_MAX_ROUNDTRIP;
+        }
     }
     r.validate()?;
     Ok(Parsed::Run(Box::new(r)))
@@ -494,6 +515,50 @@ mod tests {
     }
 
     #[test]
+    fn test_bridge_mode_defaults_to_relay_latency_budget() {
+        let parsed = parse(&args(&[
+            "AA:BB:CC:DD:EE:FF",
+            "--bridge-addr",
+            "127.0.0.1:8765",
+        ]))
+        .unwrap();
+        let Parsed::Run(r) = parsed else {
+            panic!("expected run config")
+        };
+        assert_eq!(r.heartbeat_window, Duration::from_millis(15_000));
+        assert_eq!(r.max_roundtrip, Duration::from_millis(8_000));
+    }
+
+    #[test]
+    fn test_bridge_mode_respects_explicit_limits() {
+        let parsed = parse(&args(&[
+            "AA:BB:CC:DD:EE:FF",
+            "--bridge-addr",
+            "127.0.0.1:8765",
+            "--heartbeat-window-ms",
+            "5000",
+            "--max-roundtrip-ms",
+            "2000",
+        ]))
+        .unwrap();
+        let Parsed::Run(r) = parsed else {
+            panic!("expected run config")
+        };
+        assert_eq!(r.heartbeat_window, Duration::from_millis(5_000));
+        assert_eq!(r.max_roundtrip, Duration::from_millis(2_000));
+    }
+
+    #[test]
+    fn test_direct_ble_keeps_strict_defaults() {
+        let parsed = parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap();
+        let Parsed::Run(r) = parsed else {
+            panic!("expected run config")
+        };
+        assert_eq!(r.heartbeat_window, Duration::from_millis(5_000));
+        assert_eq!(r.max_roundtrip, Duration::from_millis(250));
+    }
+
+    #[test]
     fn test_parse_bridge_and_roundtrip() {
         let parsed = parse(&args(&[
             "AA:BB:CC:DD:EE:FF",
@@ -505,6 +570,7 @@ mod tests {
         .unwrap();
         let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
         expected.bridge_addr = Some("127.0.0.1:8765".to_string());
+        expected.heartbeat_window = BRIDGE_HEARTBEAT_WINDOW;
         expected.max_roundtrip = Duration::from_millis(300);
         assert_eq!(parsed, Parsed::Run(Box::new(expected)));
     }
