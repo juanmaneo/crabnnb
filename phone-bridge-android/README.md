@@ -12,12 +12,16 @@ Requirements: JDK 17, Gradle 8.9, and Android SDK Platform 35.
 gradle -p phone-bridge-android testDebugUnitTest jacocoTestCoverageVerification assembleDebug
 ```
 
+Gradle outputs are placed in the repository's `target/phone-bridge-android/`
+directory so `cargo clean` removes Android build artifacts too.
+
 `testDebugUnitTest` covers JVM-only TCP framing and the relay's callback,
 timeout, device-selection, shutdown, and malformed-payload behavior. The JaCoCo
-HTML and XML reports are written to `build/reports/jacoco/jacocoTestReport/`;
+HTML and XML reports are written to
+`target/phone-bridge-android/reports/jacoco/jacocoTestReport/`;
 `jacocoTestCoverageVerification` gates line, branch, and bytecode-instruction
 (region) coverage at 100%. `check` also runs this gate. The debug APK is written
-to `phone-bridge-android/build/outputs/apk/debug/`.
+to `target/phone-bridge-android/outputs/apk/debug/`.
 
 Coverage is measured for every JVM-testable production class. The only excluded
 production classes are `MainActivity` and `BridgeForegroundService` (Android

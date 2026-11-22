@@ -30,8 +30,8 @@ chmod 600 "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.pem" \
 From this directory, compile for the Forerunner 235 using the DER key:
 
 ```sh
-mkdir -p build
-monkeyc -f monkey.jungle -o build/PhoneBridge.prg -d fr235 -y "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.der"
+mkdir -p ../target/iq-phone-bridge
+monkeyc -f monkey.jungle -o ../target/iq-phone-bridge/PhoneBridge.prg -d fr235 -y "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.der"
 ```
 
 Keep using the same key for future builds/updates; replacing it changes the
@@ -64,9 +64,11 @@ The script uses the existing key at
 `CIQ_MONKEYC` or the mount point with `GARMIN_MOUNT` if needed.
 
 The ignored `.hardware-test/` workspace persists as an unkeyed source copy to
-avoid recreating it manually. Each run makes a separate temporary keyed copy,
-compiles and verifies `GARMIN/APPS/PHONEBRI.PRG`, then removes the keyed source
-and `.PRG` on exit. The tracked resource remains empty. Do not copy the key into
+avoid recreating it manually. Each run makes a separate temporary keyed copy
+under `target/iq-phone-bridge/`, compiles and verifies
+`GARMIN/APPS/PHONEBRI.PRG`, then removes the keyed source and `.PRG` on exit.
+`cargo clean` also removes any interrupted keyed build artifacts. The tracked
+resource remains empty. Do not copy the key into
 tracked files, paste it into chat, or generate a new one if the PC already uses
 the current key. The app and PC must use exactly the same 64 hex characters;
 `pairingKey` is a setting value, not the key-file path.

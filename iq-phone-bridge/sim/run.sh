@@ -4,7 +4,8 @@ set -euo pipefail
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd -- "$SCRIPT_DIR/../.." && pwd)"
 CONTAINER="${CIQ_CONTAINER:-ciq-sdk}"
-WORK_DIR="$(mktemp -d "$PROJECT_ROOT/.iq-sim.XXXXXX")"
+mkdir -p "$PROJECT_ROOT/target"
+WORK_DIR="$(mktemp -d "$PROJECT_ROOT/target/.iq-sim.XXXXXX")"
 trap 'rm -rf "$WORK_DIR"' EXIT
 TEST_PORT="${CIQ_TEST_PORT:-18765}"
 

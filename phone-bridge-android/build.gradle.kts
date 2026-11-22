@@ -4,6 +4,8 @@ plugins {
     jacoco
 }
 
+layout.buildDirectory.set(layout.projectDirectory.dir("../target/phone-bridge-android"))
+
 android {
     namespace = "com.example.crabnnbbridge"
     compileSdk = 35
