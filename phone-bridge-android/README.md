@@ -34,16 +34,18 @@ device, registers for the app event before sending the 16-byte challenge, and
 returns only a successful 81-byte watch response. Initialization, transfer,
 malformed payload, and timeout failures close the TCP client without fabricating
 a heartbeat. The SDK must run on a phone with Garmin Connect Mobile installed
-and the watch paired and connected; the IQ app ID must match
-`crabnnb-phone-bridge`.
+and the watch paired and connected. The IQ app ID is
+`d72f71b21bf64c49a9ac3c6a670ea1f4`; the Android relay must use the same value.
+For store publication, replace it in both projects with the ID assigned by
+Garmin's Developer Portal.
 
 The PC protocol uses `u32le length ‖ payload` framing, with 16-byte challenges
-and 81-byte heartbeat responses. The SDK integration has not yet been verified
-against real Garmin Connect Mobile/FR235 hardware, and the IQ watch app still
-needs compilation against the official Connect IQ SDK. JDK 17 is the supported
-runtime; on the available JDK 27 environment JaCoCo 0.8.12 may print a
-non-fatal unsupported-class warning for a JDK-internal class, but app classes
-are instrumented and the coverage verification task completes.
+and 81-byte heartbeat responses. The watch app compiles against the official
+Connect IQ SDK 8.1.1 for FR235; real Garmin Connect Mobile/FR235 hardware
+interoperability is not yet verified. JDK 17 is the supported runtime; on the
+available JDK 27 environment JaCoCo 0.8.12 may print a non-fatal unsupported-class
+warning for a JDK-internal class, but app classes are instrumented and test
+coverage verification completes.
 
 ## Security/status notes
 

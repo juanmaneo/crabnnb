@@ -33,7 +33,7 @@ This project requires Rust 1.70.0 or later.
 - **Encrypted, authenticated heartbeat (challenge-response) between watch and PC** — secure by default; MAC+RSSI alone is never enough to unlock
 - ChaCha20-Poly1305 (RFC 8439) AEAD with replay protection (monotonic counter), freshness window and challenge binding (direct BLE), or AES-256-CBC + HMAC-SHA256 encrypt-then-MAC (phone bridge)
 - Challenge round-trip latency limit (`--max-roundtrip-ms`); this is not physical distance bounding and does not stop every relay
-- Phone-bridge prototype (`--bridge-addr`) for watches that cannot host GATT; Android Connect IQ relay is implemented but not yet validated on Garmin hardware
+- Phone-bridge prototype (`--bridge-addr`) for watches that cannot host GATT; the FR235 watch app compiles with Connect IQ SDK 8.1.1, but phone/watch interoperability still needs hardware validation
 - L2CAP/ATT (GATT client) channel with MTU exchange, plus RSSI and TX power reading
 - Log-distance path-loss model with polynomial accuracy curves
 - Sample averaging for stable distance measurements
@@ -100,11 +100,7 @@ Secure heartbeat (required unless --allow-insecure):
 crabnnb AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex --bridge-addr 127.0.0.1:8765
 ```
 
-The intended watch app is in [`iq-phone-bridge/`](iq-phone-bridge/README.md) and
-Android companion prototype in [`phone-bridge-android/`](phone-bridge-android/README.md).
-The bridge is not operational yet: Connect IQ callbacks are unfinished, the apps
-are not built against their SDKs, and no FR235 hardware test has been done. See
-[`docs/phone-bridge.md`](docs/phone-bridge.md) for status and wire format.
+The watch app is in [`iq-phone-bridge/`](iq-phone-bridge/README.md) and the Android companion is in [`phone-bridge-android/`](phone-bridge-android/README.md). The FR235 watch app now compiles with Connect IQ SDK 8.1.1, and the Android relay unit tests pass. The end-to-end bridge is not yet hardware-validated: verify Connect IQ callbacks and heartbeat exchange with the FR235 paired to Garmin Connect Mobile before relying on it. See [`docs/phone-bridge.md`](docs/phone-bridge.md) for current status and wire format.
 
 ### Provisioning the shared key
 

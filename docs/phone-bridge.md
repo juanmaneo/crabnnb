@@ -20,8 +20,10 @@ crabnnb (Linux PC)  --TCP-->  phone companion (Android/iOS)  --Garmin Connect / 
   exactly one watch is connected, the challenge send succeeds, and the matching
   app returns a valid 81-byte heartbeat. This implementation is not yet validated
   against Garmin Connect Mobile or physical FR235 hardware.
-- Watch app: `iq-phone-bridge/` is an unverified prototype. Its Monkey C SDK
-  calls and crypto APIs have not been compiled or tested on an FR235.
+- The watch app in `iq-phone-bridge/` compiles for FR235 with Connect IQ SDK
+  8.1.1; the Android relay's unit tests pass. Neither app has yet been validated
+  together with Garmin Connect Mobile and a physical FR235. The watch compile
+  emits deprecation warnings for the legacy API 1.4 app-property methods.
 
 ## Bridge heartbeat format (mode 1, matches `src/heartbeat.rs` MODE_AES_CBC_HMAC)
 
@@ -74,11 +76,11 @@ resistance or physical distance bounding.
 
 The Android companion now has a Gradle project and a Connect IQ Mobile SDK
 2.4.0 relay implementation, including bounded waits and fail-closed validation.
-The Android unit tests and APK build pass, but real Garmin interaction remains
+The Android JVM relay tests pass. The watch app compiles with Connect IQ SDK
+8.1.1 for `fr235`, but real Garmin Connect Mobile/FR235 interaction remains
 unverified. The TCP listener
 binds to `127.0.0.1` only and the transport has no authentication/encryption; do
 not expose it on a LAN. A local intermediary can cause denial of service, though
-it cannot forge a valid heartbeat without the key. The Connect IQ app is also
-uncompiled and untested; its SDK calls and crypto API usage need validation
-against the installed SDK and FR235. Do not deploy the phone bridge as an
-operational security feature until both apps are validated end-to-end on hardware.
+it cannot forge a valid heartbeat without the key. The Connect IQ app has not
+been tested with an actual FR235. Do not deploy the phone bridge as an operational
+security feature until both apps are validated end-to-end on hardware.

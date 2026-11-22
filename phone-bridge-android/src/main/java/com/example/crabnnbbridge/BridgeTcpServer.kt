@@ -23,7 +23,7 @@ internal class BridgeTcpServer(
 ) : AutoCloseable {
     companion object {
         const val DEFAULT_PORT = 8765
-        const val IQ_APP_ID = "crabnnb-phone-bridge"
+        const val IQ_APP_ID = "d72f71b21bf64c49a9ac3c6a670ea1f4"
     }
 
     private val closeRequested = AtomicBoolean(false)

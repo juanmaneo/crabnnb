@@ -21,8 +21,14 @@ mkdir -p build
 monkeyc -f monkey.jungle -o build/PhoneBridge.prg -d fr235 -y /path/to/developer_key.der
 ```
 
-Sideload the resulting `.prg` onto the watch (`GARMIN/APPS/`). No Connect IQ
-compiler or FR235 hardware test has been run for this project yet.
+The app ID is `d72f71b21bf64c49a9ac3c6a670ea1f4`; the Android relay is configured
+with the same ID. This ID is for this sideloadable project; use the ID assigned
+by the Garmin Developer Portal instead if publishing, and update both projects.
+
+Sideload the resulting `.prg` onto the watch (`GARMIN/APPS/`). The app compiles
+for `fr235` with Connect IQ SDK 8.1.1. Compilation reports deprecation warnings
+for the API 1.4 app-property calls; actual FR235/phone interoperability remains
+untested.
 
 Set the **pairing key** in Garmin Connect (app settings) to the same 64 hex
 characters as the PC key file (`crabnnb --gen-key-file /etc/crabnnb/key.hex`).
@@ -40,9 +46,9 @@ into `resources/properties.xml` and sideload.
 
 ## Caveats
 
-- Monkey C API details (Communications delegate method names, Digest/Cipher
-  signatures) should be verified against the installed SDK version; the logic
-  and wire format are the contract with crabnnb.
+- Communications delegate and crypto calls compile with Connect IQ SDK 8.1.1
+  for `fr235`, but callback behavior and cryptographic output still need
+  end-to-end validation against Garmin Connect Mobile and a physical watch.
 - The watch clock on the FR235 is set from the phone; `System.getTimer()` is
   uptime, not wall-clock — use `System.getClockTime()` (wall clock) for the
   timestamp instead. The PC accepts timestamps within

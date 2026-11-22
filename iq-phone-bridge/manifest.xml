@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <iq:manifest version="3" xmlns:iq="http://www.garmin.com/xml/connectiq">
-    <iq:application id="crabnnb-phone-bridge" entry="PhoneBridgeApp" launcherIcon="@Drawables.LauncherIcon" type="watch-app" name="@Strings.AppName" minSdkVersion="1.4.0">
+    <iq:application id="d72f71b21bf64c49a9ac3c6a670ea1f4" entry="PhoneBridgeApp" launcherIcon="@Drawables.LauncherIcon" type="watch-app" name="@Strings.AppName" minSdkVersion="1.4.0">
         <iq:products>
             <iq:product id="fr235"/>
         </iq:products>

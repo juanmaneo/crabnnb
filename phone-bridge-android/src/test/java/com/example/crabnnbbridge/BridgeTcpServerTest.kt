@@ -31,7 +31,7 @@ class BridgeTcpServerTest {
         val challengeReceived = CountDownLatch(1)
         val server = startServer(object : ConnectIqRelay {
             override fun sendChallengeAndAwaitHeartbeat(iqAppId: String, challenge: ByteArray): ByteArray {
-                assertEquals("crabnnb-phone-bridge", iqAppId)
+                assertEquals("d72f71b21bf64c49a9ac3c6a670ea1f4", iqAppId)
                 received.set(challenge)
                 challengeReceived.countDown()
                 return heartbeat
@@ -336,12 +336,14 @@ class BridgeTcpServerTest {
             iqAppId: String,
             onMessage: (String, Long, Boolean, List<Any?>) -> Unit,
         ) = error("must not register without a connected watch")
+
         override fun sendMessage(
             device: ConnectIqDevice,
             iqAppId: String,
             message: ByteArray,
             onStatus: (String, Long, Boolean) -> Unit,
         ) = error("must not send without a connected watch")
+
         override fun unregisterForAppEvents(device: ConnectIqDevice, iqAppId: String) = Unit
         override fun shutdown() = Unit
     }

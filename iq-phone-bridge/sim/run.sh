@@ -22,7 +22,7 @@ cp -a "$PROJECT_ROOT/iq-phone-bridge" "$WORK_DIR/project"
 cp "$SCRIPT_DIR/BridgeCryptoTest.mc" "$WORK_DIR/project/source/BridgeCryptoTest.mc"
 cp "$WORK_DIR/IqVectors.mc" "$WORK_DIR/project/source/IqVectors.mc"
 sed -i "s/__CIQ_TEST_PORT__/$TEST_PORT/g" "$WORK_DIR/project/source/BridgeCryptoTest.mc"
-sed -i 's/id="crabnnb-phone-bridge"/id="1234567890abcdef1234567890abcdef"/' "$WORK_DIR/project/manifest.xml"
+sed -i 's/id="d72f71b21bf64c49a9ac3c6a670ea1f4"/id="1234567890abcdef1234567890abcdef"/' "$WORK_DIR/project/manifest.xml"
 sed -i '/var storedKey =/i\        new BridgeCryptoTest().run();' "$WORK_DIR/project/source/PhoneBridgeApp.mc"
 
 printf 'Running FR235 Monkey C crypto vectors in Podman container %s...\n' "$CONTAINER"

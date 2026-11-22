@@ -14,6 +14,12 @@ import org.junit.Test
 
 class ConnectIqRelayTest {
     @Test
+    fun encodesConnectIqPayloadAsLowercaseHex() {
+        assertEquals("000f80ff", encodeConnectIqHex(byteArrayOf(0x00, 0x0f, 0x80.toByte(), 0xff.toByte())))
+        assertEquals("", encodeConnectIqHex(byteArrayOf()))
+    }
+
+    @Test
     fun returnsHeartbeatWhenSendSucceedsAndWatchReplies() {
         val heartbeat = heartbeat()
         val sdk = FakeConnectIqSdk(onSend = { sdk ->
@@ -49,6 +55,41 @@ class ConnectIqRelayTest {
         })
 
         assertArrayEquals(heartbeat, relay(sdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge()))
+    }
+
+    @Test
+    fun acceptsHeartbeatDeliveredAsHexString() {
+        val heartbeat = heartbeat()
+        val sdk = FakeConnectIqSdk(onSend = { sdk ->
+            sdk.deliverSendStatus(true)
+            sdk.deliverReply(payload = listOf(encodeConnectIqHex(heartbeat)))
+        })
+
+        assertArrayEquals(heartbeat, relay(sdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge()))
+    }
+
+    @Test
+    fun rejectsHexStringWithWrongLength() {
+        val sdk = FakeConnectIqSdk(onSend = { sdk ->
+            sdk.deliverSendStatus(true)
+            sdk.deliverReply(payload = listOf("00"))
+        })
+
+        assertThrows(IOException::class.java) {
+            relay(sdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge())
+        }
+    }
+
+    @Test
+    fun rejectsHeartbeatDeliveredAsMalformedHexString() {
+        val sdk = FakeConnectIqSdk(onSend = { sdk ->
+            sdk.deliverSendStatus(true)
+            sdk.deliverReply(payload = listOf("zz".repeat(BridgeProtocol.HEARTBEAT_SIZE)))
+        })
+
+        assertThrows(IOException::class.java) {
+            relay(sdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge())
+        }
     }
 
     @Test
@@ -160,10 +201,10 @@ class ConnectIqRelayTest {
     }
 
     @Test
-    fun rejectsNonByteArrayPayload() {
+    fun rejectsUnsupportedPayloadType() {
         val sdk = FakeConnectIqSdk(onSend = { sdk ->
             sdk.deliverSendStatus(true)
-            sdk.deliverReply(payload = listOf("not bytes"))
+            sdk.deliverReply(payload = listOf(42))
         })
 
         assertThrows(IOException::class.java) {
@@ -438,7 +479,7 @@ class ConnectIqRelayTest {
     private fun heartbeat() = ByteArray(BridgeProtocol.HEARTBEAT_SIZE) { (it * 3).toByte() }
 
     private companion object {
-        const val APP_ID = "crabnnb-phone-bridge"
+        const val APP_ID = "d72f71b21bf64c49a9ac3c6a670ea1f4"
         const val WATCH_ID = 42L
         val WATCH = ConnectIqDevice(WATCH_ID, "watch")
     }

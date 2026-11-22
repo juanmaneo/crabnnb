@@ -163,10 +163,10 @@ prove proximity.
 
 Devices that cannot host a GATT server (e.g. Forerunner 235) are intended to
 use `--bridge-addr HOST:PORT`, with a phone relaying TCP frames to a watch IQ
-app over `Toybox.Communications`. The checked-in Android app does not yet
-implement the Connect IQ relay and fails closed; the watch app is also
-uncompiled and untested. The bridge heartbeat format uses mode 1
-(AES-256-CBC + HMAC-SHA256 encrypt-then-MAC, 81 bytes) because Monkey C's
-available crypto API has not been validated here. See
-[phone-bridge.md](phone-bridge.md) for status and wire format. Do not use this
-prototype as an operational security control until it is completed and tested.
+app over `Toybox.Communications`. The Android companion includes a Connect IQ
+Mobile SDK relay with fail-closed handling; the watch app compiles for FR235 with
+Connect IQ SDK 8.1.1. End-to-end Garmin Connect Mobile/FR235 behavior remains
+untested. The bridge heartbeat format uses mode 1 (AES-256-CBC + HMAC-SHA256
+encrypt-then-MAC, 81 bytes). See [phone-bridge.md](phone-bridge.md) for current
+status and wire format. Do not use this prototype as an operational security
+control until validated on hardware.
