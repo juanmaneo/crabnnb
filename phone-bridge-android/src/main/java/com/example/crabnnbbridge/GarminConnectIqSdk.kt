@@ -74,7 +74,14 @@ private class GarminConnectIqSdk(private val appContext: Context) : ConnectIqSdk
                         payload: List<Any>,
                         status: ConnectIQ.IQMessageStatus,
                     ) {
-                        Log.i("CrabNNBBridge", "watch reply status: $status")
+                        Log.i(
+                            "CrabNNBBridge",
+                            "watch reply status=$status app=${app.applicationId} device=${receivedDevice.deviceIdentifier} payload=${
+                                describePayload(
+                                    payload
+                                )
+                            }",
+                        )
                         onMessage(
                             app.applicationId,
                             receivedDevice.deviceIdentifier,
@@ -105,7 +112,10 @@ private class GarminConnectIqSdk(private val appContext: Context) : ConnectIqSdk
                         sentApp: IQApp,
                         status: ConnectIQ.IQMessageStatus,
                     ) {
-                        Log.i("CrabNNBBridge", "challenge send status: $status")
+                        Log.i(
+                            "CrabNNBBridge",
+                            "challenge send status=$status app=${sentApp.applicationId} device=${sentDevice.deviceIdentifier}",
+                        )
                         onStatus(
                             sentApp.applicationId,
                             sentDevice.deviceIdentifier,
@@ -138,6 +148,17 @@ private class GarminConnectIqSdk(private val appContext: Context) : ConnectIqSdk
     private fun requireReady() {
         if (!ready) throw IOException("Garmin Connect IQ SDK is not ready")
     }
+
+    // Logs only the shape of the reply, never its contents.
+    private fun describePayload(payload: List<Any>): String =
+        payload.joinToString(prefix = "[", postfix = "]") { value ->
+            when (value) {
+                is String -> "String(${value.length})"
+                is ByteArray -> "ByteArray(${value.size})"
+                is List<*> -> "List(${value.size})"
+                else -> value.javaClass.simpleName
+            }
+        }
 
     private fun nativeDevice(device: ConnectIqDevice): IQDevice =
         device.handle as? IQDevice ?: throw IOException("invalid Connect IQ device handle")

@@ -20,6 +20,17 @@ class ConnectIqRelayTest {
     }
 
     @Test
+    fun matchesAppIdCaseInsensitivelyBecauseConnectIqReportsUppercase() {
+        val heartbeat = heartbeat()
+        val sdk = FakeConnectIqSdk(onSend = { sdk ->
+            sdk.deliverSendStatus(true, appId = APP_ID.uppercase())
+            sdk.deliverReply(payload = listOf(heartbeat.copyOf()), appId = APP_ID.uppercase())
+        })
+
+        assertArrayEquals(heartbeat, relay(sdk).sendChallengeAndAwaitHeartbeat(APP_ID, challenge()))
+    }
+
+    @Test
     fun returnsHeartbeatWhenSendSucceedsAndWatchReplies() {
         val heartbeat = heartbeat()
         val sdk = FakeConnectIqSdk(onSend = { sdk ->

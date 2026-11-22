@@ -1,43 +1,41 @@
 // Handles API 1.4 phone-app messages. Both directions use hexadecimal strings
 // because the FR235 does not expose Lang.ByteArray (API 3.0+).
+//
+// The heartbeat is computed by HeartbeatEngine one slice per timer tick, so no
+// callback runs long enough to trip the watchdog.
 
 import Toybox.Application;
-import Toybox.Lang;
 import Toybox.Communications;
+import Toybox.Lang;
+import Toybox.System;
 import Toybox.Time;
+import Toybox.Timer;
+import Toybox.WatchUi;
 
 class PhoneLink {
-    private var _prepared as Array<Array<Number>>;
+    // Shortest period Connect IQ timers support.
+    private const TICK_MS = 50;
+    // Counter values reserved per flash write; see send().
+    private const COUNTER_RESERVE = 64;
+
+
+    private var _engine as HeartbeatEngine;
+    private var _timer as Timer.Timer;
     private var _counter as Number;
+    private var _reserved as Number;
+    private var _registered as Boolean = false;
+    private var _startedAt as Number = 0;
+    private var _sentTimestamp as Number = 0;
     private var _lastError as String? = null;
-    private var _lastStage as String? = null;
+    private var _lastStage as String = "preparing key";
 
-    function initialize(prepared as Array<Array<Number>>) {
-        _prepared = prepared;
-        var app = Application.getApp();
-        var stored = app.getProperty("counter");
+    function initialize(key as Array<Number>) {
+        _engine = new HeartbeatEngine(key);
+        var stored = Application.getApp().getProperty("counter");
         _counter = (stored instanceof Number) ? stored : 1;
-        var stage = app.getProperty("debugStage");
-        _lastStage = (stage instanceof String) ? stage : "ready";
-        var error = app.getProperty("debugError");
-        _lastError = (error instanceof String && error.length() > 0) ? error : null;
-        Communications.registerForPhoneAppMessages(method(:onMessageFromPhoneApp));
-    }
-
-    function onMessageFromPhoneApp(message as Communications.PhoneAppMessage) as Void {
-        _lastError = null;
-        try {
-            Application.getApp().setProperty("debugError", "");
-        } catch (ex) {
-        }
-        recordStage("challenge received");
-        try {
-            answerChallenge(message.data);
-        } catch (ex instanceof Lang.Exception) {
-            recordError(ex.getErrorMessage());
-        } catch (ex) {
-            recordError("unknown error");
-        }
+        _reserved = _counter;
+        _timer = new Timer.Timer();
+        _timer.start(method(:onTick), TICK_MS, true);
     }
 
     function lastError() as String? {
@@ -50,35 +48,69 @@ class PhoneLink {
 
     function recordStage(stage as String) as Void {
         _lastStage = stage;
-        BridgeCrypto.checkpoint(stage);
+        WatchUi.requestUpdate();
     }
 
     function recordError(error as String) as Void {
         _lastError = error;
-        try {
-            Application.getApp().setProperty("debugError", error);
-        } catch (ex) {
-        }
-        recordStage("handler error");
+        recordStage("stopped");
     }
 
-    private function answerChallenge(data as Object?) as Void {
+    function onTick() as Void {
+        var more = false;
+        try {
+            more = _engine.step();
+        } catch (ex) {
+            _timer.stop();
+            recordError("engine exception");
+            return;
+        }
+        if (more) { return; }
+        _timer.stop();
+        var error = _engine.error();
+        if (error != null) { recordError(error); return; }
+        if (!_registered) {
+            _registered = true;
+            Communications.registerForPhoneAppMessages(method(:onMessageFromPhoneApp));
+            recordStage("ready");
+            return;
+        }
+        var reply = _engine.reply();
+        if (reply.size() == 81) { send(reply); }
+    }
+
+    function onMessageFromPhoneApp(message as Communications.PhoneAppMessage) as Void {
+        var data = message.data;
         if (!(data instanceof String)) { recordError("bad data type"); return; }
-        if (data.length() != 32) { recordError("bad challenge length"); return; }
         var challenge = BridgeCrypto.fromHex(data, 16);
-        if (challenge == null) { recordError("bad challenge hex"); return; }
-
-        recordStage("building heartbeat");
-        var timestamp = Time.now().value();
-        var heartbeat = BridgeCrypto.buildHeartbeat(_prepared, _counter, timestamp, challenge);
-        if (heartbeat.size() != 81) { recordError("heartbeat size"); return; }
-
-        _counter += 1;
-        recordStage("saving counter");
-        Application.getApp().setProperty("counter", _counter);
-        recordStage("transmitting");
-        Communications.transmit(BridgeCrypto.toHex(heartbeat), null, new BridgeTransmitListener(self));
+        if (challenge.size() != 16) { recordError("bad challenge"); return; }
+        _startedAt = System.getTimer();
+        _sentTimestamp = unixSeconds();
+        if (!_engine.begin(_counter, _sentTimestamp, challenge)) { recordError("key not ready"); return; }
         _lastError = null;
+        recordStage("computing");
+        _timer.stop();
+        _timer.start(method(:onTick), TICK_MS, true);
+    }
+
+    // Connect IQ returns Unix seconds here; keep it within the signed 32-bit Number range.
+    private function unixSeconds() as Number {
+        return Time.now().value();
+    }
+
+    private function send(reply as Array<Number>) as Void {
+        // The PC rejects non-increasing counters. Persisting an upper bound in
+        // blocks keeps that true across restarts and crashes with one flash write
+        // per COUNTER_RESERVE heartbeats instead of one per heartbeat.
+        if (_counter >= _reserved) {
+            _reserved = _counter + COUNTER_RESERVE;
+            var app = Application.getApp();
+            app.setProperty("counter", _reserved);
+            app.saveProperties();
+        }
+        _counter += 1;
+        recordStage("ts=" + _sentTimestamp + " (" + (System.getTimer() - _startedAt) + "ms)");
+        Communications.transmit(BridgeCrypto.toHex(reply), null, new BridgeTransmitListener(self));
     }
 }
 
@@ -91,7 +123,6 @@ class BridgeTransmitListener extends Communications.ConnectionListener {
     }
 
     function onComplete() as Void {
-        _link.recordStage("transmit complete");
     }
 
     function onError() as Void {

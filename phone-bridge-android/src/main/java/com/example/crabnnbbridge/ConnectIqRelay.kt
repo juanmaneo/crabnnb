@@ -95,12 +95,12 @@ internal class ConnectIqMobileSdkRelay(
             if (closed.get()) throw IOException("Garmin Connect IQ relay is closed")
             device = target
             sdk.registerForAppEvents(target, iqAppId) { appId, deviceId, success, payload ->
-                if (appId == iqAppId && deviceId == target.id) {
+                if (appId.equals(iqAppId, ignoreCase = true) && deviceId == target.id) {
                     outcome.onReply(success, payload)
                 }
             }
             sdk.sendMessage(target, iqAppId, challenge.copyOf()) { appId, deviceId, success ->
-                if (appId == iqAppId && deviceId == target.id) {
+                if (appId.equals(iqAppId, ignoreCase = true) && deviceId == target.id) {
                     outcome.onSendStatus(success)
                 }
             }
@@ -243,6 +243,7 @@ private fun decodeHeartbeat(payload: List<Any?>): ByteArray {
             if (value.any { it !is Byte }) throw IOException("watch response contains a non-byte value")
             ByteArray(value.size) { value[it] as Byte }
         }
+
         is String -> {
             if (value.length != BridgeProtocol.HEARTBEAT_SIZE * 2) {
                 throw IOException("watch returned ${value.length / 2} heartbeat bytes; expected ${BridgeProtocol.HEARTBEAT_SIZE}")
@@ -255,6 +256,7 @@ private fun decodeHeartbeat(payload: List<Any?>): ByteArray {
                 throw IOException("watch response is not valid hexadecimal", error)
             }
         }
+
         else -> throw IOException("watch response is neither hexadecimal text nor a byte array")
     }
     if (bytes.size != BridgeProtocol.HEARTBEAT_SIZE) {

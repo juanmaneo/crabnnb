@@ -35,7 +35,7 @@ pub enum HeartbeatError {
     InvalidTag,
     ChallengeMismatch,
     Replay,
-    Stale,
+    Stale { skew_ms: u64 },
 }
 
 impl std::fmt::Display for HeartbeatError {
@@ -50,7 +50,11 @@ impl std::fmt::Display for HeartbeatError {
                 write!(f, "heartbeat does not echo the outstanding challenge")
             }
             HeartbeatError::Replay => write!(f, "counter not increasing (replayed heartbeat)"),
-            HeartbeatError::Stale => write!(f, "heartbeat timestamp outside freshness window"),
+            HeartbeatError::Stale { skew_ms } => write!(
+                f,
+                "heartbeat timestamp outside freshness window (skew {} s)",
+                skew_ms / 1000
+            ),
         }
     }
 }
@@ -187,8 +191,9 @@ pub fn open_heartbeat(
         return Err(HeartbeatError::Replay);
     }
     let window_ms = window.as_millis().min(u128::from(u64::MAX)) as u64;
-    if now_ms.abs_diff(timestamp_ms) > window_ms {
-        return Err(HeartbeatError::Stale);
+    let skew_ms = now_ms.abs_diff(timestamp_ms);
+    if skew_ms > window_ms {
+        return Err(HeartbeatError::Stale { skew_ms });
     }
     Ok(Heartbeat {
         counter,
@@ -235,9 +240,9 @@ mod tests {
         assert!(HeartbeatError::Replay
             .to_string()
             .contains("replayed heartbeat"));
-        assert!(HeartbeatError::Stale
+        assert!(HeartbeatError::Stale { skew_ms: 6_000 }
             .to_string()
-            .contains("freshness window"));
+            .contains("skew 6 s"));
     }
 
     #[test]
@@ -345,7 +350,7 @@ mod tests {
         let msg = seal_heartbeat(&key(), &aad, 1, now - 6_000, &chal, &nonce());
         let err =
             open_heartbeat(&key(), &aad, &msg, &chal, 0, now, Duration::from_secs(5)).unwrap_err();
-        assert_eq!(err, HeartbeatError::Stale);
+        assert_eq!(err, HeartbeatError::Stale { skew_ms: 6_000 });
     }
 
     #[test]
@@ -356,7 +361,7 @@ mod tests {
         let msg = seal_heartbeat(&key(), &aad, 1, now + 6_000, &chal, &nonce());
         let err =
             open_heartbeat(&key(), &aad, &msg, &chal, 0, now, Duration::from_secs(5)).unwrap_err();
-        assert_eq!(err, HeartbeatError::Stale);
+        assert_eq!(err, HeartbeatError::Stale { skew_ms: 6_000 });
     }
 
     #[test]
@@ -564,7 +569,7 @@ mod tests {
             Duration::from_secs(5),
         )
         .unwrap_err();
-        assert_eq!(err, HeartbeatError::Stale);
+        assert_eq!(err, HeartbeatError::Stale { skew_ms: 6_000 });
     }
 
     #[test]
