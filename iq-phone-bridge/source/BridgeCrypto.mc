@@ -6,9 +6,17 @@
 // plaintext = counter u32le || unix-seconds u32le || challenge(16)
 // macKey = SHA256("crabnnb-mac" || key), iv = HMAC-SHA256(macKey, plaintext)[0..16]
 
+import Toybox.Application;
 import Toybox.Lang;
 
 class BridgeCrypto {
+    static function checkpoint(stage as String) as Void {
+        try {
+            Application.getApp().setProperty("debugStage", stage);
+        } catch (ex) {
+        }
+    }
+
     static function zeros(size as Number) as Array<Number> {
         var result = new [size] as Array<Number>;
         for (var i = 0; i < size; i++) { result[i] = 0; }
@@ -30,7 +38,9 @@ class BridgeCrypto {
 
     static function hexValue(value as String) as Number {
         if (value.length() != 1) { return -1; }
-        var c = value.toUpper().toCharArray()[0].toNumber();
+        var chars = value.toUpper().toCharArray();
+        if (chars.size() != 1) { return -1; }
+        var c = chars[0].toNumber();
         if (c >= 48 && c <= 57) { return c - 48; }
         if (c >= 65 && c <= 70) { return c - 55; }
         return -1;
@@ -86,7 +96,15 @@ class BridgeCrypto {
         return logicalRight(value, count) | (value << (32 - count));
     }
 
+    private static var _sha256K as Array<Number>? = null;
+    private static var _aesSbox as Array<Number>? = null;
+
     static function sha256Constants() as Array<Number> {
+        if (_sha256K == null) { _sha256K = buildSha256Constants(); }
+        return _sha256K;
+    }
+
+    static function buildSha256Constants() as Array<Number> {
         return [
             0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
             0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
@@ -166,6 +184,11 @@ class BridgeCrypto {
     }
 
     static function aesSbox() as Array<Number> {
+        if (_aesSbox == null) { _aesSbox = buildAesSbox(); }
+        return _aesSbox;
+    }
+
+    static function buildAesSbox() as Array<Number> {
         return [
             0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
             0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
@@ -243,13 +266,13 @@ class BridgeCrypto {
         return state;
     }
 
-    static function aes256CbcEncrypt(key as Array<Number>, iv as Array<Number>, plaintext as Array<Number>) as Array<Number> {
+    static function aes256CbcEncrypt(roundKeys as Array<Number>, iv as Array<Number>, plaintext as Array<Number>) as Array<Number> {
         var pad = 16 - (plaintext.size() % 16);
         var padded = zeros(plaintext.size() + pad);
         copyInto(padded, 0, plaintext);
         for (var i = plaintext.size(); i < padded.size(); i++) { padded[i] = pad; }
         var sbox = aesSbox();
-        var keys = aesRoundKeys(key, sbox);
+        var keys = roundKeys;
         var previous = slice(iv, 0, 16);
         var ciphertext = zeros(padded.size());
         for (var block = 0; block < padded.size(); block += 16) {
@@ -266,13 +289,26 @@ class BridgeCrypto {
         return sha256(concat(tag, key));
     }
 
-    static function buildHeartbeat(key as Array<Number>, counter as Number, tsSec as Number, challenge as Array<Number>) as Array<Number> {
-        if (key.size() != 32 || challenge.size() != 16) { return zeros(0); }
+    // Per-key state (AES round keys and the MAC key) is derived once and reused for
+    // every heartbeat; only the counter, timestamp, and challenge change per message.
+    static function prepareKey(key as Array<Number>) as Array<Array<Number>>? {
+        if (key.size() != 32) { return null; }
+        return [aesRoundKeys(key, aesSbox()), macKey(key)];
+    }
+
+    static function buildHeartbeat(prepared as Array<Array<Number>>, counter as Number, tsSec as Number, challenge as Array<Number>) as Array<Number> {
+        if (challenge.size() != 16) { return zeros(0); }
         var plaintext = concat(concat(u32le(counter), u32le(tsSec)), challenge);
-        var keyMac = macKey(key);
+        var roundKeys = prepared[0];
+        var keyMac = prepared[1];
+        checkpoint("crypto: derive IV");
         var iv = slice(hmacSha256(keyMac, plaintext), 0, 16);
-        var ciphertext = aes256CbcEncrypt(key, iv, plaintext);
+        checkpoint("crypto: AES-CBC");
+        var ciphertext = aes256CbcEncrypt(roundKeys, iv, plaintext);
+        checkpoint("crypto: final HMAC");
         var authenticated = concat([1], concat(iv, ciphertext));
-        return concat(authenticated, hmacSha256(keyMac, authenticated));
+        var tag = hmacSha256(keyMac, authenticated);
+        checkpoint("crypto: done");
+        return concat(authenticated, tag);
     }
 }

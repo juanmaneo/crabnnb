@@ -1,5 +1,7 @@
 # CRABNNB - Crab's Remote Access Bluetooth Nearby Notification Blocker
 
+> **Work in progress.** The Garmin Forerunner 235 phone bridge is being brought up on real hardware. It is used for bring-up only and will be replaced by a Garmin Fenix (5 or newer), which supports the background execution the bridge requires. Not ready for operational use; the phone-bridge path has not yet been validated end to end.
+
 [![CI](https://github.com/juanmaneo/crabnnb/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/juanmaneo/crabnnb/actions/workflows/ci.yml)
 
 CRABNNB is a pure Rust port of the original Python [bluetooth-near.py](https://github.com/juanmaneo/BNNB) script.

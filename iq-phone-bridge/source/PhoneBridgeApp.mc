@@ -13,11 +13,14 @@ class PhoneBridgeApp extends Application.AppBase {
         var embeddedKey = WatchUi.loadResource(Rez.Strings.PairingKeyEmbedded) as String;
         var key = BridgeCrypto.fromHex(embeddedKey, 32);
         var storedKey = Application.getApp().getProperty("pairingKey");
-        if (storedKey != null) {
-            var configuredKey = BridgeCrypto.fromHex(storedKey as String, 32);
+        if (storedKey instanceof String) {
+            var configuredKey = BridgeCrypto.fromHex(storedKey, 32);
             if (configuredKey != null) { key = configuredKey; }
         }
-        if (key != null) { _link = new PhoneLink(key); }
+        if (key != null) {
+            var prepared = BridgeCrypto.prepareKey(key);
+            if (prepared != null) { _link = new PhoneLink(prepared); }
+        }
     }
 
     function onStop(state as Dictionary?) as Void {
@@ -29,5 +32,13 @@ class PhoneBridgeApp extends Application.AppBase {
 
     function hasKey() as Boolean {
         return _link != null;
+    }
+
+    function lastError() as String? {
+        return (_link == null) ? null : _link.lastError();
+    }
+
+    function lastStage() as String? {
+        return (_link == null) ? null : _link.lastStage();
     }
 }

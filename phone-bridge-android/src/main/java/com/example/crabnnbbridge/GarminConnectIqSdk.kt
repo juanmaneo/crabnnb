@@ -1,6 +1,7 @@
 package com.example.crabnnbbridge
 
 import android.content.Context
+import android.util.Log
 import com.garmin.android.connectiq.ConnectIQ
 import com.garmin.android.connectiq.IQApp
 import com.garmin.android.connectiq.IQDevice
@@ -73,6 +74,7 @@ private class GarminConnectIqSdk(private val appContext: Context) : ConnectIqSdk
                         payload: List<Any>,
                         status: ConnectIQ.IQMessageStatus,
                     ) {
+                        Log.i("CrabNNBBridge", "watch reply status: $status")
                         onMessage(
                             app.applicationId,
                             receivedDevice.deviceIdentifier,
@@ -103,6 +105,7 @@ private class GarminConnectIqSdk(private val appContext: Context) : ConnectIqSdk
                         sentApp: IQApp,
                         status: ConnectIQ.IQMessageStatus,
                     ) {
+                        Log.i("CrabNNBBridge", "challenge send status: $status")
                         onStatus(
                             sentApp.applicationId,
                             sentDevice.deviceIdentifier,
