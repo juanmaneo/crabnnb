@@ -46,11 +46,23 @@ for `fr235` with Connect IQ SDK 8.1.1. Compilation reports deprecation warnings
 for the API 1.4 app-property calls; actual FR235/phone interoperability remains
 untested.
 
-Set the **pairing key** in Garmin Connect (app settings) to the same 64 hex
-characters as the PC key file (`crabnnb --gen-key-file /etc/crabnnb/key.hex`).
-Note: app settings set via Garmin Connect transit Garmin's cloud once —
-acceptable for most threat models; for stricter provisioning, bake the key
-into `resources/properties.xml` and sideload.
+### Pairing key for a USB-sideloaded build
+
+The `pairingKey` setting is declared in `resources/properties.xml`. Garmin
+Connect settings for this manually sideloaded app have not been verified. For
+hardware testing, put the same 64-character hex key used by the PC into the
+property value before compiling:
+
+```xml
+<property id="pairingKey" type="string">YOUR_64_HEX_CHARACTER_KEY</property>
+```
+
+Use the existing PC key file; do not generate a new key if the PC is already
+configured. Do not paste the key into chat, commit it, or leave it in the tracked
+`properties.xml`. After building, restore the empty property value before
+committing any other changes. The installed app must use exactly the same 64
+hex characters as the PC key file; the `pairingKey` value is not the key-file
+path. Use this local provisioning method for the FR235 hardware test.
 
 ## Protocol (must match crabnnb `src/heartbeat.rs`, MODE_AES_CBC_HMAC)
 
