@@ -20,18 +20,18 @@ a key if you do not already have a 4096-bit one, and keep it private and backed
 up (do not commit it):
 
 ```sh
-openssl genrsa -out "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.pem" 4096
-openssl pkey -in "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.pem" \
-  -outform DER -out "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.der"
-chmod 600 "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.pem" \
-  "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.der"
+openssl genrsa -out "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.pem" 4096
+openssl pkey -in "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.pem" \
+  -outform DER -out "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.der"
+chmod 600 "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.pem" \
+  "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.der"
 ```
 
 From this directory, compile for the Forerunner 235 using the DER key:
 
 ```sh
 mkdir -p build
-monkeyc -f monkey.jungle -o build/PhoneBridge.prg -d fr235 -y "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.der"
+monkeyc -f monkey.jungle -o build/PhoneBridge.prg -d fr235 -y "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer-4096.der"
 ```
 
 Keep using the same key for future builds/updates; replacing it changes the
