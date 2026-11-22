@@ -2,9 +2,9 @@ use std::cell::RefCell;
 use std::io;
 use std::process::Command;
 
-pub const DEFAULT_LOCK_CMD: &str = "(xscreensaver-command --time 2>&1|grep -q \"no screensaver is running\" && xscreensaver &); xscreensaver-command -lock";
+pub const DEFAULT_LOCK_CMD: &str = "loginctl lock-session";
 
-pub const DEFAULT_UNLOCK_CMD: &str = "(xscreensaver-command -time 2>&1|grep -q \"screen non-blanked since\" && xscreensaver-command -deactivate || killall xscreensaver); (xscreensaver-command --time 2>&1|grep -q \"no screensaver is running\" && xscreensaver &)";
+pub const DEFAULT_UNLOCK_CMD: &str = "loginctl unlock-session";
 
 pub trait CmdRunner {
     fn run(&mut self, cmd: &str) -> io::Result<()>;
@@ -105,8 +105,8 @@ mod tests {
 
     #[test]
     fn test_default_commands_defined() {
-        assert!(DEFAULT_LOCK_CMD.contains("lock"));
-        assert!(DEFAULT_UNLOCK_CMD.contains("deactivate"));
+        assert_eq!(DEFAULT_LOCK_CMD, "loginctl lock-session");
+        assert_eq!(DEFAULT_UNLOCK_CMD, "loginctl unlock-session");
     }
 
     #[test]

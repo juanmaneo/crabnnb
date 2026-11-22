@@ -7,8 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+- KDE Plasma `loginctl lock-session` and `loginctl unlock-session` are the default lock/unlock commands. Automatic locking is disabled by default to avoid locking users out due to failures; enable it with `--auto-lock` or supply `--lock-cmd` to enable a custom locker.
+
 ### Security
-- Presence is no longer decided by MAC address + RSSI alone (both spoofable, e.g. with a Flipper Zero). Each poll now requires a challenge-response **encrypted heartbeat** from the device: the PC writes a fresh 16-byte challenge over ATT and the device must reply with a ChaCha20-Poly1305 (RFC 8439) authenticated message (monotonic counter + unix-ms timestamp + challenge echo, AAD = watch and PC MACs). Replay, stale/future timestamps, wrong challenge and tag mismatches are all rejected. Unlock additionally requires RSSI distance below the threshold; a failed heartbeat counts as "away" and locks after `--max-missed` polls.
+- Presence is no longer decided by MAC address + RSSI alone (both spoofable, e.g. with a Flipper Zero). Each poll now requires a challenge-response **encrypted heartbeat** from the device: the PC writes a fresh 16-byte challenge over ATT and the device must reply with a ChaCha20-Poly1305 (RFC 8439) authenticated message (monotonic counter + unix-ms timestamp + challenge echo, AAD = watch and PC MACs). Replay, stale/future timestamps, wrong challenge and tag mismatches are all rejected. Unlock additionally requires RSSI distance below the threshold; a failed heartbeat counts as "away" and triggers a lock transition after `--max-missed` polls, but a lock command runs only when `--auto-lock` or `--lock-cmd` is supplied.
 - Secure mode is the default: running without `--key-file` is refused unless `--allow-insecure` is passed explicitly (legacy mode now prints a spoofability warning).
 - Key files are provisioned with `--gen-key-file` (random 32 bytes, mode 0600, never overwritten) and rejected at load time if readable by group/others.
 
@@ -25,7 +28,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `src/session.rs`: `SecureSession` probe state machine (outstanding challenge, last seen counter, freshness window)
 - L2CAP framing and ATT fixed-channel (CID 0x0004) connect/send/recv in `src/transport.rs`; `HCI Read BD ADDR` support in `src/hci.rs` (local MAC goes into the AAD)
 - `BtOps::secure_probe` / `BtOps::local_mac`; `BleDevice::set_secure` with ATT MTU exchange
-- `Sample::Unverified` in the monitor: treated like "away" (locks after `--max-missed`)
+- `Sample::Unverified` in the monitor: treated like "away" (emits an away/lock transition after `--max-missed`; the runner executes a lock command only when auto-lock is enabled)
 - CLI: `--key-file`, `--gen-key-file`, `--allow-insecure`, `--heartbeat-window-ms`, `--challenge-timeout-ms`, `--challenge-handle`, `--heartbeat-handle`
 - `docs/secure-heartbeat.md`: wire protocol, verification rules, key provisioning, Forerunner 235 guidance, Linux notes, residual risks
 - Tests: RFC 8439 vector, heartbeat forgery/replay/stale/challenge-mismatch cases, session probe tests, run-loop tests proving garbage/no-response/replayed heartbeats never unlock, CLI tests for the new options and secure-by-default enforcement

@@ -11,7 +11,7 @@ The name CRABNNB is a doubly recursive acronym:
 This naming reflects the project's core functionality:
 - **Remote Access**: Bluetooth proximity detection
 - **Nearby Notification**: Device presence monitoring
-- **Blocker**: Automatic session locking for security
+- **Blocker**: Optional automatic session locking for security
 
 ## License
 
@@ -21,7 +21,7 @@ This project is licensed under the [Beerware License](LICENSE).
 
 See [CHANGELOG.md](CHANGELOG.md) for release history.
 
-CRABNNB monitors Bluetooth device proximity and can lock/unlock your session based on device presence, making it perfect for automatically securing your computer when you walk away.
+CRABNNB monitors Bluetooth device proximity and uses KDE Plasma's `loginctl unlock-session` command when the device is verified nearby. Automatic locking is disabled by default; enable the default KDE Plasma locker with `--auto-lock` or enable a custom locker with `--lock-cmd`.
 
 ## Minimum Supported Rust Version (MSRV)
 
@@ -37,7 +37,7 @@ This project requires Rust 1.70.0 or later.
 - L2CAP/ATT (GATT client) channel with MTU exchange, plus RSSI and TX power reading
 - Log-distance path-loss model with polynomial accuracy curves
 - Sample averaging for stable distance measurements
-- Edge-triggered locking after configurable missed polls
+- Automatic KDE Plasma unlock on verified presence; auto-lock is opt-in with `--auto-lock` or `--lock-cmd` after configurable missed polls
 - Configurable commands for lock/unlock actions
 - Dry-run mode for safe testing
 - Clean exit codes (0/1/2/3)
@@ -66,10 +66,11 @@ cargo run -- <btaddr> [OPTIONS]
 
 ```
 <btaddr>               Bluetooth device MAC address (required) [format: XX:XX:XX:XX:XX:XX]
---lock-cmd CMD         Command to lock the session (default: "loginctl lock-session")
---unlock-cmd CMD       Command to unlock the session (default: "loginctl unlock-session")
+--auto-lock            Enable automatic locking (default: disabled; uses loginctl lock-session)
+--lock-cmd CMD         Set a custom lock command and enable automatic locking (default command: loginctl lock-session)
+--unlock-cmd CMD       Command to unlock the session when present (default: loginctl unlock-session)
 --max-distance-cm F    Maximum distance in centimeters (default: 90)
---max-missed N         Consecutive far/away polls before locking (default: 3)
+--max-missed N         Consecutive far/away polls before an away transition (default: 3; lock runs only when auto-lock is enabled)
 --scan-period SECS     Delay between polls in seconds (default: 1.0)
 --samples N            RSSI samples averaged per poll (default: 7)
 --sample-sleep-ms MS   Delay between samples in ms (default: 5)
@@ -97,7 +98,7 @@ Secure heartbeat (required unless --allow-insecure):
 
 ```bash
 # PC: connect to the phone companion (e.g. adb forward tcp:8765 tcp:8765)
-crabnnb AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex --bridge-addr 127.0.0.1:8765
+crabnnb AA:BB:CC:DD:EE:FF --key-file ~/.Garmin/crabnnb-pairing-key.hex --bridge-addr 127.0.0.1:8765
 ```
 
 The watch app is in [`iq-phone-bridge/`](iq-phone-bridge/README.md) and the Android companion is in [`phone-bridge-android/`](phone-bridge-android/README.md). The FR235 watch app now compiles with Connect IQ SDK 8.1.1, and the Android relay unit tests pass. The end-to-end bridge is not yet hardware-validated: verify Connect IQ callbacks and heartbeat exchange with the FR235 paired to Garmin Connect Mobile before relying on it. See [`docs/phone-bridge.md`](docs/phone-bridge.md) for current status and wire format.
@@ -106,28 +107,30 @@ The watch app is in [`iq-phone-bridge/`](iq-phone-bridge/README.md) and the Andr
 
 ```bash
 # On the Linux PC: create the key (mode 0600, never overwritten)
-crabnnb --gen-key-file /etc/crabnnb/key.hex
+mkdir -p ~/.Garmin
+crabnnb --gen-key-file ~/.Garmin/crabnnb-pairing-key.hex
 
-# Copy the 64 hex chars to the watch side out-of-band (USB/QR/manual entry),
-# then run:
-crabnnb WATCH_MAC_ADDRESS --key-file /etc/crabnnb/key.hex
+# Provision the same 64 hex chars to the watch app securely, then run:
+crabnnb WATCH_MAC_ADDRESS --key-file ~/.Garmin/crabnnb-pairing-key.hex
 ```
 
 ## Examples
 
 ```bash
 # Basic secure usage (encrypted heartbeat required to unlock)
-cargo run -- AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex
+cargo run -- AA:BB:CC:DD:EE:FF --key-file ~/.Garmin/crabnnb-pairing-key.hex
 
-# Default KDE Plasma commands
-cargo run -- DEVICE_MAC_ADDRESS --key-file /etc/crabnnb/key.hex \
-  --lock-cmd "loginctl lock-session" --unlock-cmd "loginctl unlock-session"
+# KDE Plasma defaults: unlock when the watch is verified nearby; auto-lock stays disabled
+cargo run -- DEVICE_MAC_ADDRESS --key-file ~/.Garmin/crabnnb-pairing-key.hex
+# Enable the default KDE Plasma locker only if you explicitly want auto-locking:
+cargo run -- DEVICE_MAC_ADDRESS --key-file ~/.Garmin/crabnnb-pairing-key.hex --auto-lock
+# --lock-cmd "COMMAND" enables auto-locking with a custom command.
 
 # Dry run mode for testing (no commands executed)
-cargo run -- AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex --dry-run
+cargo run -- AA:BB:CC:DD:EE:FF --key-file ~/.Garmin/crabnnb-pairing-key.hex --dry-run
 
 # Run only once and exit (useful for testing)
-cargo run -- AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex --once
+cargo run -- AA:BB:CC:DD:EE:FF --key-file ~/.Garmin/crabnnb-pairing-key.hex --once
 
 # Legacy MAC+RSSI mode (spoofable; prints a warning) — testing only
 cargo run -- AA:BB:CC:DD:EE:FF --allow-insecure --dry-run
@@ -151,14 +154,15 @@ cargo run -- DEVICE_MAC_ADDRESS --once --dry-run
 ### 3. Configuration Parameters
 
 ```bash
+# KDE defaults: unlock when nearby; automatic locking remains disabled.
 cargo run -- DEVICE_MAC_ADDRESS \
   --max-distance-cm 150 \
   --rssi-at-1m -65 \
   --samples 5 \
-  --sample-sleep-ms 100 \
-  --lock-cmd "loginctl lock-session" \
-  --unlock-cmd "loginctl unlock-session"
+  --sample-sleep-ms 100
 ```
+
+To opt in to auto-locking with the KDE Plasma default locker, add `--auto-lock`. Use `--lock-cmd "COMMAND"` to enable a custom lock command.
 
 ### 3. Systemd Service Setup
 
@@ -175,13 +179,13 @@ Documentation=https://github.com/juanmaneo/BNNB
 [Service]
 Type=simple
 ExecStart=/path/to/crabnnb/target/release/crabnnb DEVICE_MAC_ADDRESS \
-  --key-file /etc/crabnnb/key.hex \
+  --key-file %h/.Garmin/crabnnb-pairing-key.hex \
   --max-distance-cm 150 \
   --rssi-at-1m -65 \
   --samples 5 \
   --sample-sleep-ms 100 \
-  --lock-cmd "loginctl lock-session" \
   --unlock-cmd "loginctl unlock-session"
+# Auto-lock is disabled by default; add --auto-lock to ExecStart to opt in.
 Restart=always
 RestartSec=30
 Environment="RUST_LOG=info"
@@ -190,7 +194,6 @@ AmbientCapabilities=CAP_NET_ADMIN
 CapabilityBoundingSet=CAP_NET_ADMIN
 NoNewPrivileges=true
 ProtectSystem=strict
-ReadWritePaths=/etc/crabnnb
 PrivateTmp=true
 
 [Install]

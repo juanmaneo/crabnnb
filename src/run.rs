@@ -51,6 +51,7 @@ fn run_bridge(
 
 pub struct RunConfig {
     pub lock_cmd: String,
+    pub auto_lock: bool,
     pub unlock_cmd: String,
     pub max_distance_cm: f64,
     pub max_missed: u32,
@@ -136,13 +137,22 @@ pub fn run(
             }
         }
         if let Some(action) = monitor.update(&sample) {
-            let (cmd, label) = match action {
-                Action::Lock => (&cfg.lock_cmd, "lock"),
-                Action::Unlock => (&cfg.unlock_cmd, "unlock"),
-            };
-            let _ = writeln!(io.out, "running {label} command");
-            if let Err(e) = io.runner.run(cmd) {
-                let _ = writeln!(io.err, "ERROR: command failed: {e}");
+            if action == Action::Lock && !cfg.auto_lock {
+                if cfg.verbose {
+                    let _ = writeln!(
+                        io.out,
+                        "automatic locking disabled (use --auto-lock or --lock-cmd to enable)"
+                    );
+                }
+            } else {
+                let (cmd, label) = match action {
+                    Action::Lock => (&cfg.lock_cmd, "lock"),
+                    Action::Unlock => (&cfg.unlock_cmd, "unlock"),
+                };
+                let _ = writeln!(io.out, "running {label} command");
+                if let Err(e) = io.runner.run(cmd) {
+                    let _ = writeln!(io.err, "ERROR: command failed: {e}");
+                }
             }
         }
         if cfg.once {
@@ -217,6 +227,7 @@ pub fn run_cli<S: Sys>(
     let mac = parsed.mac;
     let cfg = RunConfig {
         lock_cmd: parsed.lock_cmd,
+        auto_lock: parsed.auto_lock,
         unlock_cmd: parsed.unlock_cmd,
         max_distance_cm: parsed.max_distance_cm,
         max_missed: parsed.max_missed,
@@ -422,6 +433,7 @@ mod tests {
     fn test_cfg() -> RunConfig {
         RunConfig {
             lock_cmd: "lock-cmd".to_string(),
+            auto_lock: true,
             unlock_cmd: "unlock-cmd".to_string(),
             max_distance_cm: 90.0,
             max_missed: 1,
@@ -562,6 +574,71 @@ mod tests {
         );
         let executed = run_once(&mut fx, &test_cfg());
         assert_eq!(executed, vec!["unlock-cmd".to_string()]);
+    }
+
+    #[test]
+    fn auto_lock_disabled_keeps_unlock_and_suppresses_lock() {
+        let mut cfg = test_cfg();
+        cfg.lock_cmd = "loginctl lock-session".to_string();
+        cfg.auto_lock = false;
+        cfg.max_iterations = 2;
+        cfg.verbose = true;
+        let mut fx = fixture(
+            vec![
+                ProbeStep::Valid {
+                    counter: 1,
+                    ts_ms: now_ms(),
+                },
+                ProbeStep::NoResponse,
+            ],
+            vec![0.5, 0.5],
+            true,
+        );
+        let mut runner = DryRunner::default();
+        let mut out = Vec::new();
+        let mut err = Vec::new();
+
+        assert_eq!(
+            run_capture(&mut fx, &cfg, &mut runner, &mut out, &mut err),
+            0
+        );
+        assert_eq!(runner.executed.borrow().as_slice(), &["unlock-cmd"]);
+        assert!(String::from_utf8(out)
+            .unwrap()
+            .contains("automatic locking disabled (use --auto-lock or --lock-cmd to enable)"));
+        assert!(err.is_empty());
+
+        let mut quiet_cfg = cfg;
+        quiet_cfg.verbose = false;
+        let mut quiet_fx = fixture(
+            vec![
+                ProbeStep::Valid {
+                    counter: 1,
+                    ts_ms: now_ms(),
+                },
+                ProbeStep::NoResponse,
+            ],
+            vec![0.5, 0.5],
+            true,
+        );
+        let mut quiet_runner = DryRunner::default();
+        let mut quiet_out = Vec::new();
+        let mut quiet_err = Vec::new();
+        assert_eq!(
+            run_capture(
+                &mut quiet_fx,
+                &quiet_cfg,
+                &mut quiet_runner,
+                &mut quiet_out,
+                &mut quiet_err,
+            ),
+            0
+        );
+        assert_eq!(quiet_runner.executed.borrow().as_slice(), &["unlock-cmd"]);
+        assert!(!String::from_utf8(quiet_out)
+            .unwrap()
+            .contains("automatic locking disabled"));
+        assert!(quiet_err.is_empty());
     }
 
     #[test]

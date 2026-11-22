@@ -8,6 +8,7 @@ use crate::mac::Mac;
 pub struct RunArgs {
     pub mac: Mac,
     pub lock_cmd: String,
+    pub auto_lock: bool,
     pub unlock_cmd: String,
     pub max_distance_cm: f64,
     pub max_missed: u32,
@@ -42,15 +43,16 @@ pub fn usage(prog: &str) -> String {
     format!(
         "Usage: {prog} <btaddr> [options]\n\
          \n\
-         Polls the RSSI of a bluetooth device and locks/unlocks the screen\n\
-         when it leaves/enters range.\n\
+         Polls a bluetooth device and automatically unlocks when it is present.\n\
+         Automatic locking is disabled by default.\n\
          \n\
          Options:\n\
          \x20 -h, --help              show this help and exit\n\
-         \x20 --lock-cmd CMD          command run when the device goes away\n\
-         \x20 --unlock-cmd CMD        command run when the device comes back\n\
+         \x20 --auto-lock            enable automatic locking (default: disabled)\n\
+         \x20 --lock-cmd CMD          set lock command and enable automatic locking (default: loginctl lock-session)\n\
+         \x20 --unlock-cmd CMD        command run when the device comes back (default: loginctl unlock-session)\n\
          \x20 --max-distance-cm F     distance threshold in cm (default 90)\n\
-         \x20 --max-missed N          consecutive far/away polls before locking (default 3)\n\
+         \x20 --max-missed N          consecutive far/away polls before an away transition (default 3)\n\
          \x20 --scan-period SECS      delay between polls in seconds (default 1.0)\n\
          \x20 --samples N             RSSI samples averaged per poll (default 7)\n\
          \x20 --sample-sleep-ms MS    delay between samples in ms (default 5)\n\
@@ -79,6 +81,7 @@ fn defaults(mac: Mac) -> RunArgs {
     RunArgs {
         mac,
         lock_cmd: commands::DEFAULT_LOCK_CMD.to_string(),
+        auto_lock: false,
         unlock_cmd: commands::DEFAULT_UNLOCK_CMD.to_string(),
         max_distance_cm: 90.0,
         max_missed: 3,
@@ -205,7 +208,11 @@ pub fn parse(args: &[String]) -> Result<Parsed, String> {
         let flag = args[i].as_str();
         match flag {
             "-h" | "--help" => return Ok(Parsed::Help),
-            "--lock-cmd" => r.lock_cmd = value(args, &mut i, flag)?.to_string(),
+            "--auto-lock" => r.auto_lock = true,
+            "--lock-cmd" => {
+                r.lock_cmd = value(args, &mut i, flag)?.to_string();
+                r.auto_lock = true;
+            }
             "--unlock-cmd" => r.unlock_cmd = value(args, &mut i, flag)?.to_string(),
             "--max-distance-cm" => r.max_distance_cm = num_f64(args, &mut i, flag)?,
             "--max-missed" => r.max_missed = num_u32(args, &mut i, flag)?,
@@ -263,9 +270,22 @@ mod tests {
     #[test]
     fn test_parse_defaults() {
         let mac = Mac::parse("AA:BB:CC:DD:EE:FF").unwrap();
+        let expected = defaults(mac);
+        assert_eq!(expected.lock_cmd, "loginctl lock-session");
+        assert!(!expected.auto_lock);
         assert_eq!(
             parse(&args(&["AA:BB:CC:DD:EE:FF"])).unwrap(),
-            Parsed::Run(Box::new(defaults(mac)))
+            Parsed::Run(Box::new(expected))
+        );
+    }
+
+    #[test]
+    fn test_auto_lock_enables_default_kde_lock_command() {
+        let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
+        expected.auto_lock = true;
+        assert_eq!(
+            parse(&args(&["AA:BB:CC:DD:EE:FF", "--auto-lock"])).unwrap(),
+            Parsed::Run(Box::new(expected))
         );
     }
 
@@ -302,6 +322,7 @@ mod tests {
         .unwrap();
         let mut expected = defaults(Mac::parse("AA:BB:CC:DD:EE:FF").unwrap());
         expected.lock_cmd = "loginctl lock-session".to_string();
+        expected.auto_lock = true;
         expected.unlock_cmd = "loginctl unlock-session".to_string();
         expected.max_distance_cm = 150.0;
         expected.max_missed = 5;
@@ -360,6 +381,8 @@ mod tests {
     fn test_usage_contains_prog() {
         let u = usage("crabnnb");
         assert!(u.contains("crabnnb <btaddr>"));
+        assert!(u.contains("--auto-lock"));
+        assert!(u.contains("loginctl unlock-session"));
     }
 
     #[test]
