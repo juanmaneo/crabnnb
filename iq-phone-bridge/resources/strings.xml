@@ -3,6 +3,7 @@
     <string id="AppName">CRABNNB Bridge</string>
     <string id="PairingKeyTitle">Pairing key (64 hex chars)</string>
     <string id="PairingKeyDesc">Same 32-byte key as the PC --key-file, as 64 hex characters.</string>
+    <string id="PairingKeyEmbedded"></string>
     <string id="StatusWaiting">waiting for PC challenge…</string>
     <string id="StatusOk">heartbeat OK</string>
     <string id="StatusNoKey">set the pairing key in Garmin Connect</string>

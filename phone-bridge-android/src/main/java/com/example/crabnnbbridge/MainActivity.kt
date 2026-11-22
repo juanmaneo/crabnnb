@@ -1,43 +1,52 @@
 package com.example.crabnnbbridge
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
-import kotlin.concurrent.thread
+import androidx.core.content.ContextCompat
 
 class MainActivity : AppCompatActivity() {
-    companion object {
-        const val PORT = BridgeTcpServer.DEFAULT_PORT
+    private val permissionRequest = registerForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions(),
+    ) { results ->
+        if (results.values.all { it }) {
+            startRelayService()
+        } else {
+            Toast.makeText(this, "Bluetooth and notification permissions are required", Toast.LENGTH_LONG).show()
+        }
     }
-
-    private var bridgeServer: BridgeTcpServer? = null
-    private var connectIqRelay: ConnectIqMobileSdkRelay? = null
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        val relay = ConnectIqRelayFactory.create(applicationContext)
-        connectIqRelay = relay
-        relay.start()
-        val server = BridgeTcpServer(
-            relay = relay,
-            port = PORT,
-            onListenerError = { error ->
-                if (!isFinishing) {
-                    android.util.Log.e("CrabNNBBridge", "Local bridge listener failed", error)
-                }
-            },
-            onClientError = { error ->
-                android.util.Log.w("CrabNNBBridge", "Closing bridge client", error)
-            },
-        )
-        bridgeServer = server
-        thread(name = "crabnnb-bridge-listener") { server.run() }
+        val missingPermissions = requiredPermissions().filter {
+            ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED
+        }
+        if (missingPermissions.isEmpty()) {
+            startRelayService()
+        } else {
+            permissionRequest.launch(missingPermissions.toTypedArray())
+        }
     }
 
-    override fun onDestroy() {
-        bridgeServer?.close()
-        bridgeServer = null
-        connectIqRelay?.close()
-        connectIqRelay = null
-        super.onDestroy()
+    private fun requiredPermissions(): List<String> = buildList {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            add(Manifest.permission.BLUETOOTH_CONNECT)
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            add(Manifest.permission.POST_NOTIFICATIONS)
+        }
+    }
+
+    private fun startRelayService() {
+        ContextCompat.startForegroundService(
+            this,
+            Intent(this, BridgeForegroundService::class.java),
+        )
+        finish()
     }
 }

@@ -20,21 +20,24 @@ HTML and XML reports are written to `build/reports/jacoco/jacocoTestReport/`;
 to `phone-bridge-android/build/outputs/apk/debug/`.
 
 Coverage is measured for every JVM-testable production class. The only excluded
-production classes are `MainActivity` (Android Activity lifecycle),
-`ConnectIqRelayFactory`, and `GarminConnectIqSdk` (Android/Garmin SDK construction
-and callback adapters). The relay state machine, protocol, socket server, and
-SDK-independent device/relay abstractions are included and held to the 100%
-threshold; no app protocol or relay logic is excluded. The Activity and SDK
-adapter still need Android/Garmin integration or instrumented tests, and this
-unit suite does not exercise Garmin BLE or a physical Connect IQ session.
+production classes are `MainActivity` and `BridgeForegroundService` (Android
+lifecycle), `ConnectIqRelayFactory`, and `GarminConnectIqSdk` (Android/Garmin SDK
+construction and callback adapters). The relay state machine, protocol, socket
+server, and SDK-independent device/relay abstractions are included and held to the
+100% threshold; no app protocol or relay logic is excluded. These Android entry
+points and SDK adapters need Android/Garmin integration or instrumented tests;
+this unit suite does not exercise Garmin BLE or a physical Connect IQ session.
 
-The app uses Garmin Connect IQ Mobile SDK 2.4.0 from Maven Central. On startup,
-it initializes the SDK in wireless mode, requires exactly one connected Garmin
-device, registers for the app event before sending the 16-byte challenge, and
-returns only a successful 81-byte watch response. Initialization, transfer,
-malformed payload, and timeout failures close the TCP client without fabricating
-a heartbeat. The SDK must run on a phone with Garmin Connect Mobile installed
-and the watch paired and connected. The IQ app ID is
+The app uses Garmin Connect IQ Mobile SDK 2.4.0 from Maven Central. Launching
+the app starts a connected-device foreground service with an ongoing notification;
+the relay and TCP listener continue when the screen is left, until stopped from
+the notification. Android prompts for Bluetooth-connect and notification
+permissions as needed. The service initializes the SDK in wireless mode, requires
+exactly one connected Garmin device, registers for the app event before sending
+the 16-byte challenge, and returns only a successful 81-byte watch response.
+Initialization, transfer, malformed payload, and timeout failures close the TCP
+client without fabricating a heartbeat. The SDK must run on a phone with Garmin
+Connect Mobile installed and the watch paired and connected. The IQ app ID is
 `d72f71b21bf64c49a9ac3c6a670ea1f4`; the Android relay must use the same value.
 For store publication, replace it in both projects with the ID assigned by
 Garmin's Developer Portal.

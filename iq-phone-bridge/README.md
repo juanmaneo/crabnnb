@@ -48,21 +48,21 @@ untested.
 
 ### Pairing key for a USB-sideloaded build
 
-The `pairingKey` setting is declared in `resources/properties.xml`. Garmin
-Connect settings for this manually sideloaded app have not been verified. For
-hardware testing, put the same 64-character hex key used by the PC into the
-property value before compiling:
+The app first tries the `pairingKey` Connect IQ setting, then falls back to the
+`PairingKeyEmbedded` string resource if the saved setting is missing, blank, or
+invalid. This fallback handles a stale blank setting saved by an earlier sideload.
+For hardware testing, temporarily put the same 64-character hex key used by the
+PC in `resources/strings.xml` before compiling:
 
 ```xml
-<property id="pairingKey" type="string">YOUR_64_HEX_CHARACTER_KEY</property>
+<string id="PairingKeyEmbedded">YOUR_64_HEX_CHARACTER_KEY</string>
 ```
 
 Use the existing PC key file; do not generate a new key if the PC is already
-configured. Do not paste the key into chat, commit it, or leave it in the tracked
-`properties.xml`. After building, restore the empty property value before
-committing any other changes. The installed app must use exactly the same 64
-hex characters as the PC key file; the `pairingKey` value is not the key-file
-path. Use this local provisioning method for the FR235 hardware test.
+configured. Do not paste the key into chat, commit it, or leave it in tracked
+resources. After building, restore the resource to an empty value. The installed
+app and PC must use exactly the same 64 hex characters; `pairingKey` is a
+setting value, not the key-file path.
 
 ## Protocol (must match crabnnb `src/heartbeat.rs`, MODE_AES_CBC_HMAC)
 

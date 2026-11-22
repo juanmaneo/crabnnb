@@ -57,6 +57,7 @@ val jacocoTestReport = tasks.register<JacocoReport>("jacocoTestReport") {
         // All bridge protocol, socket, and relay orchestration code stays covered.
         exclude(
             "com/example/crabnnbbridge/MainActivity*.class",
+            "com/example/crabnnbbridge/BridgeForegroundService*.class",
             "com/example/crabnnbbridge/ConnectIqRelayFactory*.class",
             "com/example/crabnnbbridge/GarminConnectIqSdk*.class",
         )
@@ -75,6 +76,7 @@ tasks.register<JacocoCoverageVerification>("jacocoTestCoverageVerification") {
     classDirectories.setFrom(fileTree(debugClasses) {
         exclude(
             "com/example/crabnnbbridge/MainActivity*.class",
+            "com/example/crabnnbbridge/BridgeForegroundService*.class",
             "com/example/crabnnbbridge/ConnectIqRelayFactory*.class",
             "com/example/crabnnbbridge/GarminConnectIqSdk*.class",
         )
