@@ -117,50 +117,45 @@ class BridgeCrypto {
         ];
     }
 
-    static function sha256(input as Array<Number>) as Array<Number> {
-        var paddedSize = ((input.size() + 9 + 63) / 64).toNumber() * 64;
-        var data = zeros(paddedSize);
-        copyInto(data, 0, input);
-        data[input.size()] = 0x80;
-        var bitLength = input.size() * 8;
-        for (var i = 0; i < 4; i++) {
-            data[paddedSize - 1 - i] = (bitLength >> (i * 8)) & 0xff;
-        }
+    static function sha256InitialState() as Array<Number> {
+        return [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    }
 
-        var hash = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+    static function sha256Compress(hash as Array<Number>, data as Array<Number>, block as Number) as Array<Number> {
+        var words = zeros(64);
         var constants = sha256Constants();
-        for (var block = 0; block < paddedSize; block += 64) {
-            var words = zeros(64);
-            for (var j = 0; j < 16; j++) {
-                var p = block + j * 4;
-                words[j] = ((data[p] & 0xff) << 24) | ((data[p + 1] & 0xff) << 16) | ((data[p + 2] & 0xff) << 8) | (data[p + 3] & 0xff);
-            }
-            for (var k = 16; k < 64; k++) {
-                var x = words[k - 15];
-                var y = words[k - 2];
-                var s0 = rotateRight(x, 7) ^ rotateRight(x, 18) ^ logicalRight(x, 3);
-                var s1 = rotateRight(y, 17) ^ rotateRight(y, 19) ^ logicalRight(y, 10);
-                words[k] = add32(add32(add32(words[k - 16], s0), words[k - 7]), s1);
-            }
-
-            var a = hash[0]; var b = hash[1]; var c = hash[2]; var d = hash[3];
-            var e = hash[4]; var f = hash[5]; var g = hash[6]; var h = hash[7];
-            for (var round = 0; round < 64; round++) {
-                var big1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
-                var choose = (e & f) ^ ((~e) & g);
-                var t1 = addMany(h, big1, choose, constants[round], words[round]);
-                var big0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
-                var majority = (a & b) ^ (a & c) ^ (b & c);
-                var t2 = add32(big0, majority);
-                h = g; g = f; f = e; e = add32(d, t1);
-                d = c; c = b; b = a; a = add32(t1, t2);
-            }
-            hash[0] = add32(hash[0], a); hash[1] = add32(hash[1], b);
-            hash[2] = add32(hash[2], c); hash[3] = add32(hash[3], d);
-            hash[4] = add32(hash[4], e); hash[5] = add32(hash[5], f);
-            hash[6] = add32(hash[6], g); hash[7] = add32(hash[7], h);
+        for (var j = 0; j < 16; j++) {
+            var p = block + j * 4;
+            words[j] = ((data[p] & 0xff) << 24) | ((data[p + 1] & 0xff) << 16) | ((data[p + 2] & 0xff) << 8) | (data[p + 3] & 0xff);
+        }
+        for (var k = 16; k < 64; k++) {
+            var x = words[k - 15];
+            var y = words[k - 2];
+            var s0 = rotateRight(x, 7) ^ rotateRight(x, 18) ^ logicalRight(x, 3);
+            var s1 = rotateRight(y, 17) ^ rotateRight(y, 19) ^ logicalRight(y, 10);
+            words[k] = add32(add32(add32(words[k - 16], s0), words[k - 7]), s1);
         }
 
+        var a = hash[0]; var b = hash[1]; var c = hash[2]; var d = hash[3];
+        var e = hash[4]; var f = hash[5]; var g = hash[6]; var h = hash[7];
+        for (var round = 0; round < 64; round++) {
+            var big1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25);
+            var choose = (e & f) ^ ((~e) & g);
+            var t1 = addMany(h, big1, choose, constants[round], words[round]);
+            var big0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22);
+            var majority = (a & b) ^ (a & c) ^ (b & c);
+            var t2 = add32(big0, majority);
+            h = g; g = f; f = e; e = add32(d, t1);
+            d = c; c = b; b = a; a = add32(t1, t2);
+        }
+        hash[0] = add32(hash[0], a); hash[1] = add32(hash[1], b);
+        hash[2] = add32(hash[2], c); hash[3] = add32(hash[3], d);
+        hash[4] = add32(hash[4], e); hash[5] = add32(hash[5], f);
+        hash[6] = add32(hash[6], g); hash[7] = add32(hash[7], h);
+        return hash;
+    }
+
+    static function sha256Bytes(hash as Array<Number>) as Array<Number> {
         var output = zeros(32);
         for (var n = 0; n < 8; n++) {
             output[n * 4] = (hash[n] >> 24) & 0xff;
@@ -171,7 +166,40 @@ class BridgeCrypto {
         return output;
     }
 
-    static function hmacSha256(key as Array<Number>, message as Array<Number>) as Array<Number> {
+    static function sha256(input as Array<Number>) as Array<Number> {
+        var paddedSize = ((input.size() + 9 + 63) / 64).toNumber() * 64;
+        var data = zeros(paddedSize);
+        copyInto(data, 0, input);
+        data[input.size()] = 0x80;
+        var bitLength = input.size() * 8;
+        for (var i = 0; i < 4; i++) {
+            data[paddedSize - 1 - i] = (bitLength >> (i * 8)) & 0xff;
+        }
+        var hash = sha256InitialState();
+        for (var block = 0; block < paddedSize; block += 64) {
+            hash = sha256Compress(hash, data, block);
+        }
+        return sha256Bytes(hash);
+    }
+
+    static function sha256FromState(input as Array<Number>, initial as Array<Number>, priorBytes as Number) as Array<Number> {
+        var paddedSize = ((input.size() + 9 + 63) / 64).toNumber() * 64;
+        var data = zeros(paddedSize);
+        copyInto(data, 0, input);
+        data[input.size()] = 0x80;
+        var bitLength = (priorBytes + input.size()) * 8;
+        for (var i = 0; i < 4; i++) {
+            data[paddedSize - 1 - i] = (bitLength >> (i * 8)) & 0xff;
+        }
+        var hash = zeros(initial.size());
+        copyInto(hash, 0, initial);
+        for (var block = 0; block < paddedSize; block += 64) {
+            hash = sha256Compress(hash, data, block);
+        }
+        return sha256Bytes(hash);
+    }
+
+    static function hmacStates(key as Array<Number>) as Array<Array<Number>> {
         var normalized = key;
         if (normalized.size() > 64) { normalized = sha256(normalized); }
         var innerPad = zeros(64); var outerPad = zeros(64);
@@ -180,7 +208,20 @@ class BridgeCrypto {
             innerPad[i] = byte ^ 0x36;
             outerPad[i] = byte ^ 0x5c;
         }
-        return sha256(concat(outerPad, sha256(concat(innerPad, message))));
+        return [
+            sha256Compress(sha256InitialState(), innerPad, 0),
+            sha256Compress(sha256InitialState(), outerPad, 0)
+        ];
+    }
+
+    static function hmacSha256Prepared(innerState as Array<Number>, outerState as Array<Number>, message as Array<Number>) as Array<Number> {
+        var inner = sha256FromState(message, innerState, 64);
+        return sha256FromState(inner, outerState, 64);
+    }
+
+    static function hmacSha256(key as Array<Number>, message as Array<Number>) as Array<Number> {
+        var states = hmacStates(key);
+        return hmacSha256Prepared(states[0], states[1], message);
     }
 
     static function aesSbox() as Array<Number> {
@@ -289,25 +330,27 @@ class BridgeCrypto {
         return sha256(concat(tag, key));
     }
 
-    // Per-key state (AES round keys and the MAC key) is derived once and reused for
-    // every heartbeat; only the counter, timestamp, and challenge change per message.
+    // Per-key AES keys and HMAC pad states are derived once and reused for each heartbeat.
     static function prepareKey(key as Array<Number>) as Array<Array<Number>>? {
         if (key.size() != 32) { return null; }
-        return [aesRoundKeys(key, aesSbox()), macKey(key)];
+        var keyMac = macKey(key);
+        var states = hmacStates(keyMac);
+        return [aesRoundKeys(key, aesSbox()), keyMac, states[0], states[1]];
     }
 
     static function buildHeartbeat(prepared as Array<Array<Number>>, counter as Number, tsSec as Number, challenge as Array<Number>) as Array<Number> {
         if (challenge.size() != 16) { return zeros(0); }
         var plaintext = concat(concat(u32le(counter), u32le(tsSec)), challenge);
         var roundKeys = prepared[0];
-        var keyMac = prepared[1];
+        var innerState = prepared[2];
+        var outerState = prepared[3];
         checkpoint("crypto: derive IV");
-        var iv = slice(hmacSha256(keyMac, plaintext), 0, 16);
+        var iv = slice(hmacSha256Prepared(innerState, outerState, plaintext), 0, 16);
         checkpoint("crypto: AES-CBC");
         var ciphertext = aes256CbcEncrypt(roundKeys, iv, plaintext);
         checkpoint("crypto: final HMAC");
         var authenticated = concat([1], concat(iv, ciphertext));
-        var tag = hmacSha256(keyMac, authenticated);
+        var tag = hmacSha256Prepared(innerState, outerState, authenticated);
         checkpoint("crypto: done");
         return concat(authenticated, tag);
     }
