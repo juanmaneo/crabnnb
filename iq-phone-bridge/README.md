@@ -13,13 +13,29 @@ back the same way.
 ## Build
 
 Install the Connect IQ SDK and configure its `monkeyc` compiler. The included
-`monkey.jungle` defines the app's source, resources, and manifest. From this
-directory, compile for the Forerunner 235 with your developer key:
+`monkey.jungle` defines the app's source, resources, and manifest. Garmin's
+Connect IQ SDK requires an **RSA 4096-bit** developer private key; a 2048-bit
+key produces an app the FR235 rejects with `Signature check failed`. Generate
+a key if you do not already have a 4096-bit one, and keep it private and backed
+up (do not commit it):
+
+```sh
+openssl genrsa -out "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.pem" 4096
+openssl pkey -in "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.pem" \
+  -outform DER -out "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.der"
+chmod 600 "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.pem" \
+  "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.der"
+```
+
+From this directory, compile for the Forerunner 235 using the DER key:
 
 ```sh
 mkdir -p build
-monkeyc -f monkey.jungle -o build/PhoneBridge.prg -d fr235 -y /path/to/developer_key.der
+monkeyc -f monkey.jungle -o build/PhoneBridge.prg -d fr235 -y "$HOME/.Garmin/ConnectIQ/keys/crabnnb-developer.der"
 ```
+
+Keep using the same key for future builds/updates; replacing it changes the
+app's signing identity.
 
 The app ID is `d72f71b21bf64c49a9ac3c6a670ea1f4`; the Android relay is configured
 with the same ID. This ID is for this sideloadable project; use the ID assigned
