@@ -9,7 +9,7 @@ crabnnb (Linux PC)  --TCP-->  phone companion (Android/iOS)  --Garmin Connect / 
         +--- encrypted heartbeat -+--- challenge (16B) -------------+
 ```
 
-- PC: `crabnnb AA:BB:CC:DD:EE:FF --key-file /etc/crabnnb/key.hex --bridge-addr 127.0.0.1:8765`
+- PC: `crabnnb AA:BB:CC:DD:EE:FF --key-file "$HOME/.Garmin/crabnnb-pairing-key.hex" --bridge-addr 127.0.0.1:8765`
   (`--bridge-addr` makes the PC *connect* to the bridge; the positional value
   must still be a syntactically valid MAC address. Run the phone companion's
   TCP server locally, e.g. via `adb forward tcp:8765 tcp:8765`).
@@ -41,9 +41,12 @@ key     = the same 32-byte key as the PC --key-file. The prototype describes
 ```
 
 The PC verifies, in order: HMAC tag (constant-time), AES-CBC padding/decrypt,
-challenge echo, strictly increasing counter, timestamp within
-`--heartbeat-window-ms`. Any failure → `Sample::Unverified` → locks after
-`--max-missed` polls. A Flipper Zero or a compromised phone alone cannot
+challenge echo, strictly increasing counter, and timestamp within
+`--heartbeat-window-ms`. Any failure produces `Sample::Unverified`; after
+`--max-missed` consecutive failures the monitor transitions to its logical
+locked state, but the lock command runs only with `--auto-lock` or a custom
+`--lock-cmd`. The monitor starts logically locked, so initial absence does not
+invoke the lock command. A Flipper Zero or a compromised phone alone cannot
 produce a valid tag without the key.
 
 Direct-BLE mode 0 (ChaCha20-Poly1305, 60/61-byte messages) is unchanged and

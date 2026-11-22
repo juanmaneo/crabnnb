@@ -22,7 +22,8 @@ produce on every poll.
 ## Key provisioning
 
 ```
-crabnnb --gen-key-file /etc/crabnnb/key.hex     # written with mode 0600, never overwritten
+mkdir -p "$HOME/.Garmin"
+crabnnb --gen-key-file "$HOME/.Garmin/crabnnb-pairing-key.hex"  # mode 0600, never overwritten
 ```
 
 The file contains 64 hex chars (32 bytes). `crabnnb --key-file` refuses to load
@@ -83,14 +84,20 @@ A heartbeat is accepted only if ALL of the following hold:
    key).
 2. The echoed challenge equals the nonce the PC just sent (rejects
    pre-computed or recorded responses).
-3. `counter > last_counter` (rejects replays; the watch must persist the
-   counter across reboots, e.g. in Connect IQ `Storage`).
+3. `counter > last_counter` (rejects replays within the running PC session).
+   The FR235 prototype reads/writes the counter with Connect IQ app properties
+   (`Application.getApp().getProperty` / `setProperty`); persistence across app
+   restarts or sideload updates must be confirmed on hardware. Fresh challenges
+   remain the primary defense against replay across PC process restarts.
 4. `|now_ms - timestamp_ms| <= --heartbeat-window-ms` (rejects stale and
    far-future timestamps; default 5000 ms).
 
 Only then does the poll produce `Sample::Distance(rssi)`; otherwise it
-produces `Sample::Unverified`, which the `Monitor` treats exactly like "away"
-and locks after `--max-missed` consecutive polls.
+produces `Sample::Unverified`, which the `Monitor` treats exactly like "away".
+After `--max-missed` consecutive away/unverified samples the monitor transitions
+to its logical locked state, but the runner executes the lock command only when
+`--auto-lock` or a custom `--lock-cmd` is supplied. The monitor starts logically
+locked, so an initial absent device does not invoke a lock command.
 
 ## Garmin Forerunner 235 note
 
@@ -101,11 +108,12 @@ watch app on the FR235 cannot be the GATT server that this PC-side client
 expects. Practical options for the FR235:
 
 1. **Phone bridge** (implemented, not yet hardware-validated): the Connect IQ
-   Mobile SDK Android companion now relays challenges and accepts only a
-   successful 81-byte response from the matching app and connected watch. Its JVM
-   tests cover callback and failure behavior, but not Garmin BLE. The watch app
-   has not been compiled or tested against the FR235 SDK; do not treat the bridge
-   as operational until both sides are built and validated on hardware.
+   Mobile SDK Android companion relays challenges and accepts only a successful
+   81-byte response from the matching app and connected watch. Its JVM tests cover
+   callback and failure behavior, but not Garmin BLE. The watch app compiles for
+   `fr235` with Connect IQ SDK 8.1.1; physical FR235/Garmin Connect Mobile
+   interoperability remains unverified. Do not treat the bridge as operational
+   until both apps are validated together on hardware.
 2. **ANT+ channel**: the FR235 supports ANT+; a CIQ app can broadcast a heartbeat
    payload on an ANT channel to an ANT+ USB stick on the Linux PC. Same crypto,
    different transport.
